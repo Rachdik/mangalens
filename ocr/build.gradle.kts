@@ -23,4 +23,10 @@ android {
 
 dependencies {
     api(project(":core"))
+
+    // Model OCR dibundel di APK (tidak butuh unduhan tambahan).
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 }

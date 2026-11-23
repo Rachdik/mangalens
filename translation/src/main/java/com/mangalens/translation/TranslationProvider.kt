@@ -11,12 +11,18 @@ sealed interface TranslateResult {
 }
 
 /**
- * Provider terjemahan yang bisa diganti (Google gratis, Google Cloud,
- * OpenAI-compatible). Implementasi masuk pada Tahap 5.
+ * Provider terjemahan yang bisa diganti (ML Kit on-device, Google Cloud,
+ * OpenAI-compatible). Implementasi saat ini: [MlKitTranslationProvider].
  */
 interface TranslationProvider {
     val id: String
     val displayName: String
+
+    /**
+     * Menyiapkan provider (mis. mengunduh model). Default: tidak ada
+     * persiapan khusus.
+     */
+    suspend fun prepare(): Boolean = true
 
     suspend fun translate(requests: List<TranslationRequest>): TranslateResult
 }

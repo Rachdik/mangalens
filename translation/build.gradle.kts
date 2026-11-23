@@ -23,4 +23,7 @@ android {
 
 dependencies {
     api(project(":core"))
+
+    // Terjemahan on-device; model diunduh sekali saat pertama dipakai.
+    implementation("com.google.mlkit:translate:17.0.3")
 }

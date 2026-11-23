@@ -9,6 +9,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/app_name"
+        android:textColor="@color/mangalens_on_surface"
         android:textSize="26sp"
         android:textStyle="bold" />
 
@@ -35,13 +36,21 @@
             android:imeOptions="actionGo"
             android:importantForAutofill="no"
             android:inputType="textUri"
-            android:maxLines="1" />
+            android:maxLines="1"
+            android:textColor="@color/mangalens_on_surface"
+            android:textColorHint="@color/mangalens_muted" />
+
+        <Button
+            android:id="@+id/pasteButton"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/paste" />
 
         <Button
             android:id="@+id/openButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/space_s"
             android:text="@string/open" />
     </LinearLayout>
 
@@ -57,6 +66,60 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_m"
+        android:background="@drawable/bg_section"
+        android:orientation="vertical"
+        android:padding="@dimen/space_s">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/screen_translate_title"
+            android:textColor="@color/mangalens_on_surface"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/screen_translate_subtitle"
+            android:textColor="@color/mangalens_muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/source_language"
+                android:textColor="@color/mangalens_muted"
+                android:textSize="13sp" />
+
+            <Spinner
+                android:id="@+id/scriptSpinner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:entries="@array/source_scripts" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/floatingButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/start_bubble" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -65,6 +128,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/history_title"
+            android:textColor="@color/mangalens_on_surface"
             android:textSize="16sp"
             android:textStyle="bold" />
 

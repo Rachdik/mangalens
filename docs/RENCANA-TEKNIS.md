@@ -341,6 +341,11 @@ berjalan saat panel diminimalkan.
 Risiko: `[RISIKO]` OEM (Xiaomi/Oppo/Samsung) mematikan foreground service; `[RISIKO]` perilaku
 `specialUse` berbeda per OEM. Tidak ada jaminan lintas semua perangkat.
 
+**Catatan implementasi aktual:** `foregroundServiceType="mediaProjection"` (bukan `specialUse`),
+`START_NOT_STICKY` karena MediaProjection tidak bisa dipulihkan setelah service mati. Hasil
+terjemahan tampil sebagai kartu panel (teks asli + terjemahan), **belum** ditempel pada posisi bubble
+asli — itu menunggu inpainting/overlay per blok (Tahap 6).
+
 ---
 
 ## 9. Tahap 8 — Image translator (galeri, sharesheet, Intent)
@@ -423,7 +428,11 @@ tategaki, patch-based inpainting, OEM background service).
 | 1 Audit | selesai | laporan audit |
 | 2 Scaffold + URL/WebView | scaffold & build selesai; **belum diuji jalan** | `./gradlew :app:assembleDebug` BUILD SUCCESSFUL, `app-debug.apk` 3,6 MB. Uji runtime emulator belum selesai (emulator tidak selesai boot dan dihentikan), jadi belum ada bukti aplikasi berjalan tanpa crash |
 | 3 Ekstraksi gambar | diimplementasikan; **belum diuji di device** | skrip `mangalens_scan.js`, `ImageScanSession`, `NativeImageFetcher`, `ImageStore`, panel “Gambar N”. Build lulus; belum ada bukti pada situs nyata |
-| 4–10 | belum | — |
+| 4 OCR (ML Kit) | diimplementasikan; **belum diuji di device** | `ocr/MlKitOcrEngine.kt` memakai `text-recognition` + varian Jepang/Korea/China `16.0.1` (model bundled). Saat ini dipakai oleh jalur floating layar, belum oleh gambar reader |
+| 5 Terjemahan | diimplementasikan (on-device); **belum diuji di device** | `translation/MlKitTranslationProvider.kt` (`com.google.mlkit:translate:17.0.3`); model id+ja/ko/zh/en diunduh sekali saat pertama dipakai (butuh internet sekali) |
+| 6 Inpainting | belum | — |
+| 7 Floating bubble + terjemahan layar | diimplementasikan; **belum diuji di device** | `floating/FloatingTranslateService.kt`, `BubbleOverlay.kt`, `ScreenCapture.kt`, `ScreenTranslator.kt`. Ketuk bubble → MediaProjection + OCR + terjemah → panel hasil; tekan lama = mati. Bubble disembunyikan ~250 ms saat menangkap layar agar tidak ikut ter-OCR |
+| 8–10 | belum | — |
 
 Modul yang benar-benar ada di `settings.gradle.kts`: `app, core, ui, storage, reader, floating, ocr,
 translation, inpainting, imageprocessing` (10 modul). `ui` adalah modul ke-10 di luar daftar awal, hanya
@@ -437,3 +446,23 @@ Tahap 7 dan 8 memakai pipeline yang sama, jadi dikerjakan setelah 6 stabil. Taha
 
 Setiap tahap: build + test, lalu laporan file dibuat/diubah, error yang ditemukan, dan status fitur
 (berfungsi / sebagian / belum).
+
+---
+
+## 15. Perbaikan masukan pengguna (APK Tahap 4)
+
+Dua keluhan nyata dari uji perangkat Realme GT Neo 3 dan perbaikannya:
+
+1. **Teks hampir tak terlihat di mode gelap perangkat.** Tema `Theme.AppCompat.DayNight` memakai
+teks terang sementara `windowBackground` selalu terang → judul, hint, dan isi kolom URL tampak putih
+di atas putih, sehingga URL hasil tempel seolah tidak masuk. Fix: `Theme.AppCompat.Light.NoActionBar`
+plus `textColorPrimary/textColorSecondary` eksplisit dan `textColor`/`textColorHint` pada `EditText`.
+2. **URL tidak bisa ditempel.** Ditambahkan tombol **Tempel** yang membaca `ClipboardManager`
+(mengekstrak URL pertama dari teks clipboard), plus intent-filter `ACTION_VIEW` (http/https) dan
+`ACTION_SEND` `text/plain` agar tautan bisa dibagikan dari browser langsung ke MangaLens.
+3. **Tidak ada floating translator.** Tahap 7 dikerjakan lebih awal: bubble overlay + MediaProjection
++ ML Kit OCR + terjemahan on-device, dengan sumber bahasa (Jepang/Korea/China/Inggris) dipilih di
+layar utama.
+
+APK: `dist/MangaLens-tahap4-arm64-debug.apk` (arm64-v8a, ~36 MB). Split ABI dipakai karena native lib
+ML Kit ±16 MB per ABI; tanpa split APK menjadi 112 MB.

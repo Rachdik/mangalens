@@ -19,6 +19,17 @@ android {
         viewBinding = true
     }
 
+    // Native lib ML Kit besar (~16 MB per ABI); hasilkan APK per ABI agar
+    // unduhan ke perangkat tidak 100+ MB.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

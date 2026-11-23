@@ -23,4 +23,8 @@ android {
 
 dependencies {
     api(project(":core"))
+    api(project(":ocr"))
+    api(project(":translation"))
+
+    implementation("androidx.core:core-ktx:1.13.1")
 }
