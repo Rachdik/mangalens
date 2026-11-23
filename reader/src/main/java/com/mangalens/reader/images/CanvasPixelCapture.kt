@@ -113,71 +113,85 @@ object CanvasPixelCapture {
             eval("window.__mangalensSetOverlayHidden&&window.__mangalensSetOverlayHidden(true)")
             delay(SETTLE_MS)
 
-            for (tile in 0 until tiles) {
-                val offset = tile * step
-                if (offset >= cssH) break
-                eval("window.__mangalensCanvasScrollTo&&window.__mangalensCanvasScrollTo(${quote(key)},${offset})")
-                // Tunggu compositor menggambar ulang setelah scroll, lalu ukur lagi:
-                // tanpa ini tangkapan bisa berisi halaman sebelumnya (duplikat).
-                delay(SETTLE_MS)
-                var info = json(eval("window.__mangalensCanvasRectNow&&window.__mangalensCanvasRectNow(${quote(key)})"))
-                if (info == null || !info.optBoolean("ok") || info.optDouble("sliceHeight", 0.0) < 8.0) {
-                    delay(SETTLE_MS * 2)
-                    info = json(
-                        eval("window.__mangalensCanvasRectNow&&window.__mangalensCanvasRectNow(${quote(key)})")
+            // Satu putaran menangkap semua potongan. Bila tidak ada potongan yang
+            // berhasil (mis. compositor belum selesai setelah fling), putaran
+            // diulang sekali dengan jeda lebih panjang, bukan langsung menyerah.
+            suspend fun capturePass(pass: Int): Int {
+                var got = 0
+                for (tile in 0 until tiles) {
+                    val offset = tile * step
+                    if (offset >= cssH) break
+                    eval("window.__mangalensCanvasScrollTo&&window.__mangalensCanvasScrollTo(${quote(key)},${offset})")
+                    // Tunggu compositor menggambar ulang setelah scroll, lalu ukur lagi:
+                    // tanpa ini tangkapan bisa berisi halaman sebelumnya (duplikat).
+                    delay(SETTLE_MS + if (pass > 0) SETTLE_MS else 0L)
+                    var info = json(eval("window.__mangalensCanvasRectNow&&window.__mangalensCanvasRectNow(${quote(key)})"))
+                    if (info == null || !info.optBoolean("ok") || info.optDouble("sliceHeight", 0.0) < 8.0) {
+                        delay(SETTLE_MS * 2)
+                        info = json(
+                            eval("window.__mangalensCanvasRectNow&&window.__mangalensCanvasRectNow(${quote(key)})")
+                        )
+                    }
+                    if (info == null || !info.optBoolean("ok")) continue
+
+                    val sliceTop = info.optDouble("sliceTop", 0.0)
+                    val sliceH = info.optDouble("sliceHeight", 0.0)
+                    val left = info.optDouble("left", 0.0)
+                    val width = info.optDouble("width", 0.0)
+                    if (sliceH < 8 || width < 8) continue
+
+                    var srcLeft = location[0] + (left * dpr).roundToInt() - decorLocation[0]
+                    var srcTop = location[1] + (sliceTop * dpr).roundToInt() - decorLocation[1]
+                    var srcW = (width * dpr).roundToInt()
+                    var srcH = (sliceH * dpr).roundToInt()
+                    if (srcW <= 0 || srcH <= 0) continue
+
+                    // Klip ke batas jendela; sisa yang terpotong digeser di destRect.
+                    var clipX = 0
+                    var clipY = 0
+                    if (srcLeft < 0) {
+                        clipX = -srcLeft
+                        srcW -= clipX
+                        srcLeft = 0
+                    }
+                    if (srcTop < 0) {
+                        clipY = -srcTop
+                        srcH -= clipY
+                        srcTop = 0
+                    }
+                    if (srcLeft + srcW > windowW) srcW = windowW - srcLeft
+                    if (srcTop + srcH > windowH) srcH = windowH - srcTop
+                    if (srcW < 8 || srcH < 8) {
+                        Log.w(TAG, "potongan $tile di luar jendela (w=$srcW h=$srcH)")
+                        continue
+                    }
+
+                    val tileBitmap = Bitmap.createBitmap(srcW, srcH, Bitmap.Config.ARGB_8888)
+                    val ok = pixelCopy(activity, Rect(srcLeft, srcTop, srcLeft + srcW, srcTop + srcH), tileBitmap)
+                    if (!ok) {
+                        tileBitmap.recycle()
+                        Log.w(TAG, "PixelCopy gagal pada potongan $tile")
+                        continue
+                    }
+
+                    val destRect = Rect(
+                        (left * dpr * scale).roundToInt() + (clipX * scale).roundToInt(),
+                        (offset * dpr * scale).roundToInt() + (clipY * scale).roundToInt(),
+                        (left * dpr * scale).roundToInt() + ((clipX + srcW) * scale).roundToInt(),
+                        (offset * dpr * scale).roundToInt() + ((clipY + srcH) * scale).roundToInt()
                     )
-                }
-                if (info == null || !info.optBoolean("ok")) continue
-
-                val sliceTop = info.optDouble("sliceTop", 0.0)
-                val sliceH = info.optDouble("sliceHeight", 0.0)
-                val left = info.optDouble("left", 0.0)
-                val width = info.optDouble("width", 0.0)
-                if (sliceH < 8 || width < 8) continue
-
-                var srcLeft = location[0] + (left * dpr).roundToInt() - decorLocation[0]
-                var srcTop = location[1] + (sliceTop * dpr).roundToInt() - decorLocation[1]
-                var srcW = (width * dpr).roundToInt()
-                var srcH = (sliceH * dpr).roundToInt()
-                if (srcW <= 0 || srcH <= 0) continue
-
-                // Klip ke batas jendela; sisa yang terpotong digeser di destRect.
-                var clipX = 0
-                var clipY = 0
-                if (srcLeft < 0) {
-                    clipX = -srcLeft
-                    srcW -= clipX
-                    srcLeft = 0
-                }
-                if (srcTop < 0) {
-                    clipY = -srcTop
-                    srcH -= clipY
-                    srcTop = 0
-                }
-                if (srcLeft + srcW > windowW) srcW = windowW - srcLeft
-                if (srcTop + srcH > windowH) srcH = windowH - srcTop
-                if (srcW < 8 || srcH < 8) {
-                    Log.w(TAG, "potongan $tile di luar jendela (w=$srcW h=$srcH)")
-                    continue
-                }
-
-                val tileBitmap = Bitmap.createBitmap(srcW, srcH, Bitmap.Config.ARGB_8888)
-                val ok = pixelCopy(activity, Rect(srcLeft, srcTop, srcLeft + srcW, srcTop + srcH), tileBitmap)
-                if (!ok) {
+                    Canvas(output).drawBitmap(tileBitmap, null, destRect, null)
                     tileBitmap.recycle()
-                    Log.w(TAG, "PixelCopy gagal pada potongan $tile")
-                    continue
+                    got++
                 }
+                return got
+            }
 
-                val destRect = Rect(
-                    (left * dpr * scale).roundToInt() + (clipX * scale).roundToInt(),
-                    (offset * dpr * scale).roundToInt() + (clipY * scale).roundToInt(),
-                    (left * dpr * scale).roundToInt() + ((clipX + srcW) * scale).roundToInt(),
-                    (offset * dpr * scale).roundToInt() + ((clipY + srcH) * scale).roundToInt()
-                )
-                Canvas(output).drawBitmap(tileBitmap, null, destRect, null)
-                tileBitmap.recycle()
-                capturedTiles++
+            capturedTiles = capturePass(0)
+            if (capturedTiles == 0) {
+                Log.w(TAG, "percobaan pertama kosong, mengulang setelah jeda")
+                delay(SETTLE_MS * 2)
+                capturedTiles = capturePass(1)
             }
         } finally {
             // Selalu pulihkan posisi baca pengguna dan tampilkan overlay lagi.

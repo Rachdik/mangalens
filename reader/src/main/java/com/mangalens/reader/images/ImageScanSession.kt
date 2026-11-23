@@ -105,8 +105,18 @@ class ImageScanSession(
             if (image.isCanvas) {
                 // Jalur canvas: ekstraksi dari WebView, lalu simpan byte seperti
                 // gambar biasa agar pipeline OCR/inpainting/overlay tetap sama.
-                val capture = canvasExtractor?.extract(image.key)
+                var capture = canvasExtractor?.extract(image.key)
                 if (startedGeneration != generation) return
+                if (capture == null) {
+                    // Satu kegagalan biasanya berarti WebView sedang menggulir/menggambar
+                    // (mis. setelah fling). Beri jeda lalu coba sekali lagi sebelum
+                    // menyerah, supaya halaman itu tidak kehilangan terjemahan.
+                    android.util.Log.w("MangaLensScan", "canvas gagal diekstrak, mencoba ulang")
+                    kotlinx.coroutines.delay(CANVAS_RETRY_DELAY_MS)
+                    if (startedGeneration != generation) return
+                    capture = canvasExtractor?.extract(image.key)
+                    if (startedGeneration != generation) return
+                }
                 if (capture == null) {
                     android.util.Log.w("MangaLensScan", "canvas gagal diekstrak")
                     setState(image.key, ImageDownloadState.Failed("canvas tidak bisa diekstrak"))
@@ -165,6 +175,9 @@ class ImageScanSession(
 
         /** Batas antrean agar scroll cepat tidak menumpuk pekerjaan tanpa batas. */
         private const val QUEUE_CAPACITY = 32
+
+        /** Jeda sebelum ekstraksi canvas diulang setelah percobaan pertama gagal. */
+        private const val CANVAS_RETRY_DELAY_MS = 1_500L
 
         /** Batas jumlah gambar per halaman agar daftar tidak tumbuh tak terbatas. */
         private const val MAX_IMAGES = 200

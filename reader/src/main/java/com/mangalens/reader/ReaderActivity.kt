@@ -330,7 +330,25 @@ class ReaderActivity : AppCompatActivity() {
             key = key,
             eval = { evalJs(it) },
             acceptContent = { canvasContentHashes.add(it) }
-        )
+        )?.also { capture ->
+            // Build debug menyimpan hasil tangkapan agar bisa diperiksa/diekspor
+            // (adb pull dari folder files milik aplikasi). Build rilis tidak menulis apa pun.
+            if (isDebuggableBuild()) exportCanvasSample(key, capture)
+        }
+    }
+
+    private fun isDebuggableBuild(): Boolean =
+        (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    private fun exportCanvasSample(key: String, capture: CanvasCapture) {
+        runCatching {
+            val dir = getExternalFilesDir("canvas-capture") ?: return
+            if (!dir.exists()) dir.mkdirs()
+            val name = "canvas-" + key.replace(Regex("[^A-Za-z0-9]+"), "_").takeLast(48) + ".jpg"
+            val file = File(dir, name)
+            file.writeBytes(capture.bytes)
+            Log.d(TAG_OVERLAY, "sampel canvas disimpan: ${file.absolutePath}")
+        }
     }
 
     private suspend fun evalJs(script: String): String? {
