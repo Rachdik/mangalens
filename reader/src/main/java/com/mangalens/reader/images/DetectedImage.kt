@@ -11,7 +11,9 @@ data class DetectedImage(
     val width: Int,
     val height: Int,
     val docOrder: Int,
-    val sequence: Int
+    val sequence: Int,
+    /** True bila sumber adalah <canvas>, sehingga byte diambil lewat ekstraksi. */
+    val isCanvas: Boolean = false
 ) {
     val key: String get() = normalizeKey(url)
 

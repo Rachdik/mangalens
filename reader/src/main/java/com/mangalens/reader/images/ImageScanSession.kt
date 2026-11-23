@@ -19,7 +19,12 @@ class ImageScanSession(
     private val scope: CoroutineScope,
     private val fetcher: NativeImageFetcher,
     private val store: ImageStore,
-    private val pageContext: () -> PageContext
+    private val pageContext: () -> PageContext,
+    /**
+     * Diperlukan hanya untuk sumber `<canvas>`: isinya tidak bisa diunduh lewat
+     * HTTP, jadi harus diambil dari WebView. Null berarti canvas dilewati.
+     */
+    private val canvasExtractor: CanvasExtractor? = null
 ) {
 
     private val _images = MutableStateFlow<List<DetectedImage>>(emptyList())
@@ -96,6 +101,32 @@ class ImageScanSession(
             }
 
             setState(image.key, ImageDownloadState.Downloading)
+
+            if (image.isCanvas) {
+                // Jalur canvas: ekstraksi dari WebView, lalu simpan byte seperti
+                // gambar biasa agar pipeline OCR/inpainting/overlay tetap sama.
+                val capture = canvasExtractor?.extract(image.key)
+                if (startedGeneration != generation) return
+                if (capture == null) {
+                    android.util.Log.w("MangaLensScan", "canvas gagal diekstrak")
+                    setState(image.key, ImageDownloadState.Failed("canvas tidak bisa diekstrak"))
+                    return
+                }
+                val file = store.write(image.key, capture.bytes, "image/webp")
+                if (startedGeneration == generation) {
+                    android.util.Log.d(
+                        "MangaLensScan",
+                        "canvas siap ${capture.width}x${capture.height} " +
+                            "${capture.bytes.size / 1024} KB"
+                    )
+                    setState(
+                        image.key,
+                        ImageDownloadState.Ready(file, capture.bytes.size.toLong(), "image/webp")
+                    )
+                }
+                return
+            }
+
             val outcome = fetcher.fetch(image.url, pageContext())
             if (startedGeneration != generation) return
 
