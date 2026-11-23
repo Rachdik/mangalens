@@ -219,6 +219,7 @@ class ReaderActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 scanSession.reset()
+                translationManager?.reset()
                 viewModel.onPageStarted(url.orEmpty())
             }
 

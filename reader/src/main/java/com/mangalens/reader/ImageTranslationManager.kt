@@ -48,6 +48,15 @@ class ImageTranslationManager(
         _isProcessing.value = false
     }
 
+    /**
+     * Reset daftar gambar yang sudah diproses.
+     * Dipanggil saat halaman berubah agar gambar di halaman baru
+     * bisa diproses meskipun URL-nya sama dengan gambar di halaman lama.
+     */
+    fun reset() {
+        processedImages.clear()
+    }
+
     /** Proses gambar tertentu secara manual (mis. saat user menekan bubble). */
     fun processImage(image: DetectedImage) {
         val states = scanSession.states.value
@@ -72,7 +81,6 @@ class ImageTranslationManager(
                         processImageFile(state.file, image)
                         processedImages.add(image.key)
                     } catch (e: Exception) {
-                        // Log error tapi jangan hentikan monitoring
                         e.printStackTrace()
                     } finally {
                         _isProcessing.value = false
@@ -80,18 +88,15 @@ class ImageTranslationManager(
                 }
             }
 
-            // Cek setiap 2 detik
             kotlinx.coroutines.delay(2000)
         }
     }
 
     private suspend fun processImageFile(file: File, image: DetectedImage) {
-        // Load bitmap dari file cache
         val bitmap = BitmapFactory.decodeFile(file.absolutePath)
             ?: return
 
         try {
-            // Proses terjemahan
             pipeline.processImage(bitmap, "auto", "id")
         } finally {
             if (bitmap.isMutable) {
