@@ -46,7 +46,13 @@ object BubbleDetector {
     private const val MAX_GROW_FACTOR = 0.9f
 
     fun detect(bitmap: Bitmap, blocks: List<RecognizedBlock>): List<DetectedBubble> {
-        val usable = blocks.filter { it.text.isNotBlank() && it.bounds.width() > 2 && it.bounds.height() > 2 }
+        // Blok hanya berisi tanda baca/angka tunggal (nomor halaman, SFX) bukan
+        // dialog dan membuat deteksi balon meleset.
+        val usable = blocks.filter {
+            it.text.count { ch -> ch.isLetterOrDigit() } >= 2 &&
+                it.bounds.width() > 2 &&
+                it.bounds.height() > 2
+        }
         if (usable.isEmpty()) return emptyList()
 
         val groups = groupBlocks(usable)
@@ -72,7 +78,7 @@ object BubbleDetector {
             val ring = ringColor(pixels, image.width, image.height, union)
             val fill = ring ?: Color.WHITE
             val bubble = growBubble(pixels, image.width, image.height, union, fill)
-                ?: padRect(union, image.height)
+                ?: padRect(union, image.width, image.height)
 
             val textColor = if (luminance(fill) > 150) Color.BLACK else Color.WHITE
             DetectedBubble(
@@ -244,18 +250,19 @@ object BubbleDetector {
         val horizontalGap = max(0, max(a.left, b.left) - min(a.right, b.right))
         val verticalGap = max(0, max(a.top, b.top) - min(a.bottom, b.bottom))
         val reference = max(min(a.height(), b.height()), 12)
-        val horizontalLimit = (reference * 1.6f).toInt()
-        val verticalLimit = (reference * 1.4f).toInt()
+        val horizontalLimit = (reference * 1.4f).toInt()
+        val verticalLimit = (reference * 1.2f).toInt()
         return horizontalGap <= horizontalLimit && verticalGap <= verticalLimit
     }
 
-    private fun padRect(rect: Rect, height: Int): Rect {
-        val pad = (rect.height() * 0.22f).toInt().coerceIn(4, 48)
+    /** Kotak cadangan bila flood fill gagal (balon dengan screentone/gradien). */
+    private fun padRect(rect: Rect, width: Int, height: Int): Rect {
+        val pad = (rect.height() * 0.28f).toInt().coerceIn(6, 56)
         return Rect(
-            rect.left - pad,
-            rect.top - pad,
-            rect.right + pad,
-            rect.bottom + pad
+            (rect.left - pad).coerceAtLeast(0),
+            (rect.top - pad).coerceAtLeast(0),
+            (rect.right + pad).coerceAtMost(width),
+            (rect.bottom + pad).coerceAtMost(height)
         )
     }
 

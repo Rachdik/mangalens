@@ -3,7 +3,12 @@ package com.mangalens.ocr
 import android.graphics.Bitmap
 import android.graphics.Rect
 
-enum class LanguageScript { LATIN, JAPANESE, KOREAN, CHINESE }
+/**
+ * Skrip yang bisa dikenali OCR. [AUTO] berarti pemanggil tidak memilih bahasa:
+ * engine mencoba beberapa recognizer lalu memakai hasil terbaik, sehingga satu
+ * bubble yang sama bisa dipakai di manga Jepang maupun komik Inggris.
+ */
+enum class LanguageScript { AUTO, LATIN, JAPANESE, KOREAN, CHINESE }
 
 data class RecognizedBlock(
     val text: String,

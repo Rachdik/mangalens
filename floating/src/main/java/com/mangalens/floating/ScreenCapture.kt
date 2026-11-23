@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.WindowManager
+import kotlin.math.abs
 import kotlin.math.max
 
 /** Izin rekam layar tidak bisa dipakai lagi; pengguna harus menyetujui ulang. */
@@ -46,6 +47,11 @@ class ScreenCapture(
     private var thread: HandlerThread? = null
     private var screenWidth = 0
     private var screenHeight = 0
+
+    /** Skala frame terakhir (bitmap / layar), dipakai saat menempel terjemahan. */
+    @Volatile
+    var lastScale: Float = 1f
+        private set
 
     @Synchronized
     fun start() {
@@ -110,17 +116,32 @@ class ScreenCapture(
         }
 
         val longest = max(raw.width, raw.height)
-        if (longest <= MAX_OCR_DIMENSION) return CaptureFrame(raw, raw.width.toFloat() / screenWidth)
+        val frame = if (longest <= MAX_OCR_DIMENSION) {
+            CaptureFrame(raw, raw.width.toFloat() / screenWidth)
+        } else {
+            val scale = MAX_OCR_DIMENSION.toFloat() / longest
+            val scaled = Bitmap.createScaledBitmap(
+                raw,
+                (raw.width * scale).toInt().coerceAtLeast(1),
+                (raw.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled !== raw) raw.recycle()
+            CaptureFrame(scaled, scaled.width.toFloat() / screenWidth)
+        }
 
-        val scale = MAX_OCR_DIMENSION.toFloat() / longest
-        val scaled = Bitmap.createScaledBitmap(
-            raw,
-            (raw.width * scale).toInt().coerceAtLeast(1),
-            (raw.height * scale).toInt().coerceAtLeast(1),
-            true
-        )
-        if (scaled !== raw) raw.recycle()
-        return CaptureFrame(scaled, scaled.width.toFloat() / screenWidth)
+        // Frame hitam = compositor belum menggambar atau izin dicabut sebagian.
+        // Lebih baik dilaporkan jelas daripada OCR 0 blok tanpa alasan.
+        if (frame.bitmap.looksBlack()) {
+            frame.bitmap.recycle()
+            throw ProjectionUnavailableException(
+                "Layar terekam kosong (hitam). Ketuk bubble sekali lagi; bila berulang, " +
+                    "matikan lalu nyalakan ulang bubble."
+            )
+        }
+
+        lastScale = frame.scale
+        return frame
     }
 
     @Synchronized
@@ -184,10 +205,43 @@ class ScreenCapture(
         return metrics.widthPixels to metrics.heightPixels
     }
 
+    /**
+     * True bila frame hampir seluruhnya hitam. Halaman manga yang benar selalu
+     * punya kontras (garis/teks), jadi ini menandakan tangkapan gagal.
+     */
+    private fun Bitmap.looksBlack(): Boolean {
+        val stepX = max(1, width / GRID)
+        val stepY = max(1, height / GRID)
+        var minLuma = 255
+        var maxLuma = 0
+        var total = 0L
+        var samples = 0
+        var y = 0
+        while (y < height) {
+            var x = 0
+            while (x < width) {
+                val color = getPixel(x, y)
+                val luma = ((color shr 16 and 0xFF) * 299 +
+                    (color shr 8 and 0xFF) * 587 +
+                    (color and 0xFF) * 114) / 1000
+                if (luma < minLuma) minLuma = luma
+                if (luma > maxLuma) maxLuma = luma
+                total += luma
+                samples++
+                x += stepX
+            }
+            y += stepY
+        }
+        if (samples == 0) return true
+        val average = total / samples
+        return average < 10 && abs(maxLuma - minLuma) < 8
+    }
+
     private companion object {
         const val FIRST_FRAME_DELAY_MS = 200L
         const val FRESH_FRAME_DELAY_MS = 60L
         const val CAPTURE_TIMEOUT_MS = 4_000L
         const val MAX_OCR_DIMENSION = 1600
+        const val GRID = 16
     }
 }

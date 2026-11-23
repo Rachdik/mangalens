@@ -1,6 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="source_scripts">
+        <item>Otomatis</item>
         <item>Jepang</item>
         <item>Korea</item>
         <item>China</item>

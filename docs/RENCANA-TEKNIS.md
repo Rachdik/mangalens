@@ -507,3 +507,59 @@ longgar); seluruh perilaku ini belum diuji di perangkat.
 
 APK: `dist/MangaLens-tahap5-arm64-debug.apk` (36.604.274 byte, SHA-256
 `b9f65b5bab6f278bc567e8c526b67bbb4d24569246abdf465d94aba6ea441604`).
+
+---
+
+## 17. Perbaikan masukan pengguna (APK Tahap 6)
+
+Keluhan: pada halaman manga berbahasa Inggris **tidak ada hasil terjemahan** walaupun bubble aktif;
+dan permintaan agar bubble bisa menerjemahkan **di luar aplikasi MangaLens** (aplikasi/browser lain).
+
+Penyebab nyata yang ditemukan di kode:
+
+1. **Bahasa sumber dipaksa manual, default Jepang.** `FloatingSettings` default `JAPANESE`/`ja`, jadi
+   halaman Inggris di-OCR dengan recognizer Jepang lalu diterjemahkan dengan model `ja→id`. Hasilnya
+   kosong atau teks tidak berubah. Ini penyebab utama keluhan "tidak ada hasil terjemahan".
+2. **Tidak ada bahasa otomatis** sehingga bubble yang dipakai di aplikasi lain (webtoon Inggris,
+   manhwa Korea) salah bahasa tanpa cara memperbaikinya dari bubble.
+3. **Kegagalan tidak terlihat.** Bila OCR 0 blok atau model belum terunduh, hanya ada pesan umum;
+   tidak ada angka yang bisa dilaporkan pengguna.
+4. **Koordinat tempelan bisa meleset** karena overlay memakai `resources.displayMetrics` (area setelah
+   inset) sementara tangkapan layar memakai layar penuh, dan koordinat tidak dijepit ke dalam layar.
+
+Perubahan:
+
+1. `ocr/LanguageScript` mendapat nilai `AUTO`; `ocr/ScriptDetector` mendeteksi skrip dari karakter
+   hasil OCR (kana → Jepang, hangul → Korea, han → China, sisanya Latin) dan memetakannya ke tag
+   terjemahan (`ja/ko/zh/en`).
+2. `MlKitOcrEngine` mode `AUTO` menjalankan recognizer Latin lebih dulu (cepat, akurat untuk huruf
+   Latin); bila hasilnya < 40 karakter, recognizer Jepang dicoba dan hasil dengan teks terbanyak dipakai.
+3. `MangaPageTranslator` sekarang memilih provider sesuai **bahasa yang benar-benar terbaca**, bukan
+   pilihan pengguna, dengan cache provider per bahasa. Hasil mengembalikan `PageTranslation`
+   (`ocrBlocks`, `detectedBubbles`, `sourceTag`) untuk diagnostik.
+4. Service menampilkan status berisi angka tersebut, mis. `OCR 14 blok · 6 balon · en→id`, sehingga
+   kegagalan bisa dibedakan: tidak ada teks terbaca / tidak ada balon / model belum terunduh.
+5. `ScreenCapture` menolak frame hampir seluruhnya hitam (compositor belum menggambar) dan
+   menyimpan `lastScale` untuk pemetaan koordinat.
+6. `BubbleOverlay` memakai `currentWindowMetrics` (sama dengan penangkap layar), memanggil
+   `fitInsetsTypes = 0` + `LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`, dan menjepit posisi/ukuran tempelan ke
+   dalam layar.
+7. `BubbleDetector` tidak lagi menganggap blok 1 karakter (nomor halaman, tanda baca) sebagai dialog,
+   memperketat penggabungan blok (1.4×/1.2× tinggi huruf), dan memperbesar padding cadangan
+   (28%) dengan batas gambar.
+8. Default sumber bahasa di layar utama menjadi **Otomatis**; opsi manual tetap ada.
+9. Teks UI menjelaskan bahwa bubble bekerja di aplikasi mana pun.
+
+Cara kerja di luar MangaLens: MediaProjection menangkap **seluruh layar**, bukan hanya jendela
+MangaLens, jadi bubble yang sama bisa dipakai di browser atau aplikasi baca lain. Karena bahasa sumber
+dideteksi otomatis, pengguna tidak perlu kembali ke MangaLens untuk mengganti bahasa.
+
+Batasan yang masih ada (belum berubah): tempelan mengikuti frame saat diterjemahkan sehingga setelah
+halaman digulir perlu ketuk ulang (belum ada auto-refresh); teks asli ditutup oleh latar berwarna balon,
+belum inpainting piksel penuh; balon dengan screentone memakai kotak cadangan yang lebih longgar;
+model ML Kit Translation butuh unduhan sekali dengan internet; deteksi Latin diasumsikan Inggris
+(teks Latin non-Inggris bisa salah arah terjemahan). Seluruh perilaku runtime **belum diuji di perangkat**
+karena tidak ada device yang tersambung ke agen.
+
+APK: `dist/MangaLens-tahap6-arm64-debug.apk` (36.597.437 byte, SHA-256
+`e940948ef848c7c500f2e12ae258b0a9e30e854bede9f4a90a904be05894d154`).

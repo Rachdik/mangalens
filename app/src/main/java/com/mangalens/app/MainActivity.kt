@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Urutan harus sama dengan `@array/source_scripts`. */
     private val sourceScripts = listOf(
+        "AUTO" to "auto",
         "JAPANESE" to "ja",
         "KOREAN" to "ko",
         "CHINESE" to "zh",

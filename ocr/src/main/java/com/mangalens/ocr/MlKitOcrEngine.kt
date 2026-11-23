@@ -21,6 +21,33 @@ import kotlin.coroutines.resumeWithException
 class MlKitOcrEngine : OcrEngine {
 
     override suspend fun recognize(bitmap: Bitmap, script: LanguageScript): List<RecognizedBlock> {
+        if (script == LanguageScript.AUTO) return recognizeAuto(bitmap)
+        return recognizeWith(bitmap, script)
+    }
+
+    /**
+     * Mode otomatis: recognizer Latin hampir selalu lebih akurat untuk huruf
+     * Latin, sedangkan manga Jepang butuh recognizer Jepang. Latin dicoba dulu
+     * karena paling sering dipakai; bila hasilnya terlalu sedikit (mis. halaman
+     * Jepang), recognizer Jepang dicoba dan hasil dengan teks terbanyak dipakai.
+     */
+    private suspend fun recognizeAuto(bitmap: Bitmap): List<RecognizedBlock> {
+        val latin = runCatching { recognizeWith(bitmap, LanguageScript.LATIN) }
+            .getOrDefault(emptyList())
+        val latinChars = ScriptDetector.characterCount(latin.joinToString(" ") { it.text })
+        if (latinChars >= AUTO_ENOUGH_CHARS) return latin
+
+        val japanese = runCatching { recognizeWith(bitmap, LanguageScript.JAPANESE) }
+            .getOrDefault(emptyList())
+        val japaneseChars = ScriptDetector.characterCount(japanese.joinToString(" ") { it.text })
+
+        return if (japaneseChars > latinChars) japanese else latin
+    }
+
+    private suspend fun recognizeWith(
+        bitmap: Bitmap,
+        script: LanguageScript
+    ): List<RecognizedBlock> {
         val recognizer = createRecognizer(script)
         return try {
             val result = recognizer
@@ -29,14 +56,11 @@ class MlKitOcrEngine : OcrEngine {
 
             result.textBlocks.mapIndexedNotNull { index, block ->
                 val text = block.lines.joinToString("\n") { it.text }.trim()
-                if (text.isEmpty()) {
+                val box = block.boundingBox
+                if (text.isEmpty() || box == null) {
                     null
                 } else {
-                    RecognizedBlock(
-                        text = text,
-                        bounds = block.boundingBox ?: Rect(),
-                        order = index
-                    )
+                    RecognizedBlock(text = text, bounds = Rect(box), order = index)
                 }
             }
         } finally {
@@ -54,8 +78,13 @@ class MlKitOcrEngine : OcrEngine {
         LanguageScript.CHINESE ->
             TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
 
-        LanguageScript.LATIN ->
+        LanguageScript.LATIN, LanguageScript.AUTO ->
             TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+
+    private companion object {
+        /** Di atas angka ini halaman dianggap berisi teks Latin; tidak perlu coba Jepang. */
+        const val AUTO_ENOUGH_CHARS = 40
     }
 }
 

@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Bitmap
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
@@ -17,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
 import com.mangalens.inpainting.MangaPageTranslator
+import com.mangalens.inpainting.PageTranslation
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
 import com.mangalens.translation.MlKitTranslationProvider
@@ -33,7 +33,9 @@ import kotlinx.coroutines.withContext
  * Foreground service bubble terjemahan layar.
  *
  * Alur: ketuk bubble -> tangkap layar -> OCR -> deteksi balon -> terjemahkan ->
- * tempel teks Indonesia tepat di atas balon aslinya.
+ * tempel teks Indonesia tepat di atas balon aslinya. MediaProjection menangkap
+ * seluruh layar, jadi alur ini bekerja di MangaLens maupun di aplikasi/browser
+ * lain tanpa perlu membuka MangaLens lagi.
  *
  * Service dirancang tetap hidup walaupun izin rekam layar dicabut sistem
  * (mis. saat berpindah halaman atau aplikasi): bubble tetap ada dan ketukan
@@ -48,7 +50,6 @@ class FloatingTranslateService : Service() {
     private var projection: MediaProjection? = null
     private var capture: ScreenCapture? = null
     private var translator: MangaPageTranslator? = null
-    private var translatorTag: String? = null
     private var job: Job? = null
 
     override fun onCreate() {
@@ -157,32 +158,58 @@ class FloatingTranslateService : Service() {
                 }
 
                 overlay.setStatus("Mendeteksi balon teks…")
-                val bubbles = withContext(Dispatchers.Default) {
-                    translator().translate(frame.bitmap, settings.script)
-                }
-                frame.bitmap.recycle()
-
-                if (bubbles.isEmpty()) {
-                    overlay.setStatus(
-                        "Tidak ada balon teks yang terdeteksi. Perbesar gambar atau ganti bahasa sumber.",
-                        true
-                    )
-                } else {
-                    val shown = overlay.showTranslations(bubbles, frame.scale)
-                    if (shown == 0) {
-                        overlay.setStatus("Balon terdeteksi tetapi tidak ada teks yang bisa ditempel.", true)
-                    } else {
-                        overlay.flashStatus(
-                            "$shown balon diterjemahkan langsung di gambar. Ketuk bubble untuk menghapus."
-                        )
+                val result = try {
+                    withContext(Dispatchers.Default) {
+                        translator().translate(frame.bitmap, settings.script)
                     }
+                } finally {
+                    frame.bitmap.recycle()
                 }
+
+                showResult(result)
             } catch (e: ProjectionUnavailableException) {
                 capture = null
                 overlay.setStatus(e.message ?: "Izin rekam layar berakhir.", true)
             } catch (t: Throwable) {
                 overlay.setStatus(t.message ?: "Gagal menerjemahkan layar.", true)
             }
+        }
+    }
+
+    private fun showResult(result: PageTranslation) {
+        val info = "OCR ${result.ocrBlocks} blok · ${result.detectedBubbles} balon · ${result.sourceTag}→id"
+
+        if (result.ocrBlocks == 0) {
+            overlay.setStatus(
+                "Tidak ada teks yang terbaca di layar ($info). Perbesar gambar " +
+                    "atau pastikan halaman sudah selesai dimuat.",
+                true
+            )
+            return
+        }
+
+        if (result.bubbles.isEmpty()) {
+            overlay.setStatus(
+                if (result.detectedBubbles == 0) {
+                    "Teks terbaca, tetapi tidak ada balon yang bisa ditempel ($info). " +
+                        "Coba perbesar halaman sampai teks lebih jelas."
+                } else {
+                    "Balon terdeteksi tetapi terjemahan tidak berubah ($info). " +
+                        "Model bahasa mungkin belum terunduh — sambungkan internet lalu ketuk lagi."
+                },
+                true
+            )
+            return
+        }
+
+        val shown = overlay.showTranslations(result.bubbles, capture?.lastScale ?: 1f)
+        if (shown == 0) {
+            overlay.setStatus("Balon terdeteksi tetapi tidak ada teks yang bisa ditempel.", true)
+        } else {
+            overlay.flashStatus(
+                "$shown balon diterjemahkan ($info). Ketuk bubble untuk menghapus.",
+                durationMs = 4000L
+            )
         }
     }
 
@@ -230,16 +257,11 @@ class FloatingTranslateService : Service() {
         return true
     }
 
-    /** Satu provider per bahasa sumber; model tidak dimuat ulang setiap ketukan. */
+    /** Satu pipeline untuk semua ketukan; provider internal di-cache per bahasa. */
     private fun translator(): MangaPageTranslator {
-        val tag = settings.languageTag
-        val existing = translator
-        if (existing != null && translatorTag == tag) return existing
-
-        existing?.close()
-        val created = MangaPageTranslator(MlKitOcrEngine(), MlKitTranslationProvider(tag))
+        translator?.let { return it }
+        val created = MangaPageTranslator(MlKitOcrEngine()) { tag -> MlKitTranslationProvider(tag) }
         translator = created
-        translatorTag = tag
         return created
     }
 

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -35,8 +36,16 @@ class BubbleOverlay(
 
     private val windowManager: WindowManager = context.getSystemService(WindowManager::class.java)
     private val density = context.resources.displayMetrics.density
-    private val screenWidth = context.resources.displayMetrics.widthPixels
-    private val screenHeight = context.resources.displayMetrics.heightPixels
+
+    // Ukuran layar diambil dari window metrics (sama seperti ScreenCapture)
+    // supaya koordinat tempelan cocok dengan frame hasil tangkapan layar.
+    private val screenBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        runCatching { windowManager?.currentWindowMetrics?.bounds }.getOrNull()
+    } else {
+        null
+    }
+    private val screenWidth = screenBounds?.width() ?: context.resources.displayMetrics.widthPixels
+    private val screenHeight = screenBounds?.height() ?: context.resources.displayMetrics.heightPixels
 
     private var bubble: TextView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
@@ -79,6 +88,7 @@ class BubbleOverlay(
             gravity = Gravity.TOP or Gravity.START
             x = dp(8)
             y = screenHeight / 3
+            ignoreInsets()
         }
 
         attachTouch(view, params)
@@ -184,10 +194,16 @@ class BubbleOverlay(
             val text = bubble.targetText.trim()
             if (text.isEmpty()) continue
 
+            // Koordinat frame tangkapan -> koordinat layar, lalu dijepit agar
+            // tempelan tidak keluar layar (mis. balon di tepi kanan).
             val left = (bubble.bounds.left / scale).toInt()
+                .coerceIn(0, max(0, screenWidth - MIN_TRANSLATION_WIDTH))
             val top = (bubble.bounds.top / scale).toInt()
+                .coerceIn(0, max(0, screenHeight - MIN_TRANSLATION_HEIGHT))
             val width = (bubble.bounds.width() / scale).toInt()
+                .coerceAtMost(screenWidth - left)
             val height = (bubble.bounds.height() / scale).toInt()
+                .coerceAtMost(screenHeight - top)
             if (width < MIN_TRANSLATION_WIDTH || height < MIN_TRANSLATION_HEIGHT) continue
 
             val view = TextView(context).apply {
@@ -223,8 +239,9 @@ class BubbleOverlay(
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = left.coerceAtLeast(0)
-                y = top.coerceAtLeast(0)
+                x = left
+                y = top
+                ignoreInsets()
             }
 
             val attached = runCatching {
@@ -432,6 +449,18 @@ class BubbleOverlay(
             setColor(color)
             setStroke(dp(1), stroke)
         }
+
+    /**
+     * Overlay harus memakai koordinat layar penuh, bukan area setelah status
+     * bar dan navigation bar, agar tempelan jatuh tepat di balon.
+     */
+    private fun WindowManager.LayoutParams.ignoreInsets() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            fitInsetsTypes = 0
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+    }
 
     private fun dp(value: Int): Int = (value * density).toInt()
 
