@@ -20,7 +20,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import android.util.Log
 import com.mangalens.core.di.Dependencies
+import com.mangalens.inpainting.TranslatedBubble
 import com.mangalens.reader.databinding.ActivityReaderBinding
 import com.mangalens.reader.images.DetectedImage
 import com.mangalens.reader.images.ImageListSheet
@@ -31,6 +33,7 @@ import com.mangalens.reader.images.PageContext
 import com.mangalens.translation.TranslationBackend
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 class ReaderActivity : AppCompatActivity() {
@@ -113,72 +116,11 @@ class ReaderActivity : AppCompatActivity() {
         translatePipeline = ReadTranslatePipeline(this)
         translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
 
+        // Callback dipanggil dari coroutine pipeline (Dispatchers.IO). Semua metode
+        // WebView wajib dijalankan di thread yang membuat WebView, jadi hasilnya
+        // diposting ke thread UI sebelum menyentuh WebView.
         translatePipeline?.onTranslationReady = { bubbles ->
-            runCatching {
-                if (bubbles.isEmpty()) {
-                    binding.webView.evaluateJavascript(
-                        """
-                        var overlay = document.getElementById('mangalens-overlay');
-                        if (overlay) overlay.remove();
-                        """,
-                        null
-                    )
-                } else {
-                    binding.webView.evaluateJavascript(
-                        """
-                        (function() {
-                            var container = document.getElementById('mangalens-overlay');
-                            if (!container) {
-                                container = document.createElement('div');
-                                container.id = 'mangalens-overlay';
-                                container.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
-                                document.body.appendChild(container);
-                            }
-                            var oldDivs = container.querySelectorAll('.mangalens-translation');
-                            oldDivs.forEach(function(d) { d.remove(); });
-                        })();
-                        """,
-                        null
-                    )
-
-                    for (bubble in bubbles) {
-                        val overlayHtml = buildString {
-                            append("<div class='mangalens-translation' style='position:absolute;left:")
-                            append(bubble.bounds.left)
-                            append("px;top:")
-                            append(bubble.bounds.top)
-                            append("px;width:")
-                            append(bubble.bounds.width())
-                            append("px;height:")
-                            append(bubble.bounds.height())
-                            append("px;background-color:rgba(")
-                            append(Color.red(bubble.fillColor))
-                            append(",")
-                            append(Color.green(bubble.fillColor))
-                            append(",")
-                            append(Color.blue(bubble.fillColor))
-                            append(",0.7);color:#")
-                            append(String.format("%06X", 0xFFFFFF and bubble.textColor))
-                            append(";padding:2px;font-size:14px;z-index:1000;pointer-events:none;border-radius:4px;'>")
-                            append(bubble.targetText)
-                            append("</div>")
-                        }
-                        binding.webView.evaluateJavascript(
-                            """
-                            (function() {
-                                var container = document.getElementById('mangalens-overlay');
-                                if (!container) return;
-                                var div = document.createElement('div');
-                                div.className = 'mangalens-translation';
-                                div.style.cssText = '${overlayHtml.replace("'", "\\'")}';
-                                container.appendChild(div);
-                            })();
-                            """,
-                            null
-                        )
-                    }
-                }
-            }
+            binding.webView.post { applyTranslationOverlay(bubbles) }
         }
 
         translationManager = ImageTranslationManager(
@@ -189,6 +131,71 @@ class ReaderActivity : AppCompatActivity() {
         )
         translationManager?.start()
     }
+
+    /**
+     * Menempel hasil terjemahan di halaman web. Harus dipanggil di thread UI.
+     *
+     * Catatan keterbatasan: koordinat bubble masih koordinat piksel gambar asli,
+     * belum dipetakan ke posisi gambar di dokumen (offset/scale), sehingga
+     * penempatan hanya pas bila gambar dirender seukuran aslinya.
+     */
+    private fun applyTranslationOverlay(bubbles: List<TranslatedBubble>) {
+        if (isFinishing || isDestroyed) return
+        val webView = binding.webView
+
+        if (bubbles.isEmpty()) {
+            webView.evaluateJavascript(
+                "(function(){var o=document.getElementById('mangalens-overlay');if(o)o.remove();})();",
+                null
+            )
+            return
+        }
+
+        val items = bubbles.joinToString(",") { bubble ->
+            val bounds = bubble.bounds
+            val background = "rgba(" +
+                Color.red(bubble.fillColor) + "," +
+                Color.green(bubble.fillColor) + "," +
+                Color.blue(bubble.fillColor) + ",0.7)"
+            val foreground = "#" + String.format(java.util.Locale.US, "%06X", 0xFFFFFF and bubble.textColor)
+            "{\"l\":${bounds.left},\"t\":${bounds.top},\"w\":${bounds.width()},\"h\":${bounds.height()}," +
+                "\"bg\":\"$background\",\"fg\":\"$foreground\"," +
+                "\"x\":${JSONObject.quote(bubble.targetText)}}"
+        }
+
+        Log.d(TAG_OVERLAY, "render ${bubbles.size} terjemahan")
+
+        val script = """
+            (function() {
+                var items = [$items];
+                var c = document.getElementById('mangalens-overlay');
+                if (!c) {
+                    c = document.createElement('div');
+                    c.id = 'mangalens-overlay';
+                    c.style.cssText = 'position:absolute;top:0;left:0;width:100%;min-height:100%;pointer-events:none;z-index:9999;';
+                    document.body.appendChild(c);
+                }
+                var old = c.querySelectorAll('.mangalens-translation');
+                for (var i = 0; i < old.length; i++) { old[i].remove(); }
+                items.forEach(function(it) {
+                    var d = document.createElement('div');
+                    d.className = 'mangalens-translation';
+                    d.style.cssText = 'position:absolute;box-sizing:border-box;overflow:hidden;padding:2px;' +
+                        'font-size:14px;line-height:1.2;border-radius:4px;pointer-events:none;' +
+                        'left:' + it.l + 'px;top:' + it.t + 'px;width:' + it.w + 'px;height:' + it.h + 'px;' +
+                        'background-color:' + it.bg + ';color:' + it.fg + ';';
+                    d.textContent = it.x;
+                    c.appendChild(d);
+                });
+                return c.querySelectorAll('.mangalens-translation').length;
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script) { result ->
+            Log.d(TAG_OVERLAY, "overlay DOM nodes=$result")
+        }
+    }
+
 
     private fun configureWebView() {
         binding.webView.settings.apply {
@@ -336,6 +343,7 @@ class ReaderActivity : AppCompatActivity() {
         private const val KEY_WEBVIEW_STATE = "reader_webview_state"
         private const val SCAN_SCRIPT = "mangalens_scan.js"
         private const val BRIDGE_NAME = "MangaLensBridge"
+        private const val TAG_OVERLAY = "MangaLensOverlay"
 
         fun intent(context: Context, url: String): Intent =
             Intent(context, ReaderActivity::class.java).putExtra(EXTRA_URL, url)

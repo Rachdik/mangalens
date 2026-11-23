@@ -64,14 +64,18 @@ class ReadTranslatePipeline(
         }
     }
 
-    /** Pipeline memuat file sendiri lalu me-recycle bitmap setelah selesai. */
-    fun processImageFile(file: File, sourceTag: String = "auto", targetTag: String = "id") {
+    /**
+     * Pipeline memuat file sendiri lalu me-recycle bitmap setelah selesai.
+     * Mengembalikan [Job] agar pemanggil bisa menunggu sampai gambar ini selesai
+     * sebelum memproses gambar berikutnya (memanggil lagi akan membatalkan job).
+     */
+    fun processImageFile(file: File, sourceTag: String = "auto", targetTag: String = "id"): Job? {
         if (!Dependencies.isReady()) {
             status = PipelineStatus.Error
-            return
+            return null
         }
         progress = 10
-        startJob {
+        return startJob {
             val bitmap = decodeBounded(file) ?: return@startJob emptyList()
             try {
                 progress = 30
@@ -84,7 +88,7 @@ class ReadTranslatePipeline(
         }
     }
 
-    private fun startJob(block: suspend () -> List<TranslatedBubble>) {
+    private fun startJob(block: suspend () -> List<TranslatedBubble>): Job {
         currentJob?.cancel()
         status = PipelineStatus.Processing
         progress = 0
@@ -103,6 +107,7 @@ class ReadTranslatePipeline(
                 onTranslationReady?.invoke(emptyList())
             }
         }
+        return currentJob!!
     }
 
     private fun getTranslator(): MangaPageTranslator {

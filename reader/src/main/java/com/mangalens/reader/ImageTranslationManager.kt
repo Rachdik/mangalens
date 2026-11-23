@@ -58,7 +58,7 @@ class ImageTranslationManager(
     fun processImage(image: DetectedImage) {
         val state = scanSession.states.value[image.key]
         if (state is ImageDownloadState.Ready) {
-            scope.launch { processImageFile(state) }
+            scope.launch { pipeline.processImageFile(state.file, "auto", "id")?.join() }
         }
     }
 
@@ -73,7 +73,13 @@ class ImageTranslationManager(
                 if (state is ImageDownloadState.Ready) {
                     _isProcessing.value = true
                     try {
-                        processImageFile(state)
+                        // Tunggu sampai gambar ini benar-benar selesai: memanggil
+                        // processImageFile lagi akan membatalkan job yang berjalan,
+                        // sehingga gambar sebelumnya tidak pernah selesai.
+                        val job = pipeline.processImageFile(state.file, "auto", "id")
+                        if (job == null) continue
+                        job.join()
+                        if (job.isCancelled) continue
                         processedImages.add(image.key)
                     } catch (c: kotlinx.coroutines.CancellationException) {
                         throw c
@@ -88,10 +94,6 @@ class ImageTranslationManager(
 
             delay(POLL_INTERVAL_MS)
         }
-    }
-
-    private fun processImageFile(state: ImageDownloadState.Ready) {
-        pipeline.processImageFile(state.file, "auto", "id")
     }
 
     private companion object {
