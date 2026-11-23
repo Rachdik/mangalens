@@ -26,6 +26,9 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 - **Tempel di balon** — teks Indonesia ditempel tepat di atas teks aslinya, seukuran kotak teks
   agar gambar di sekitar balon tetap terlihat. Teks di luar balon (kotak narasi, tulisan pada
   gambar) juga diterjemahkan.
+- **Terjemah gambar dari aplikasi lain** — kirim gambar manga ke MangaLens lewat Sharesheet
+  (`ACTION_SEND` dengan MIME `image/*`). Gambar diproses lewat pipeline yang sama, hasilnya
+  ditampilkan sebagai dialog berisi teks asli dan terjemahan.
 - **Bubble melayang** — bekerja di atas aplikasi lain (browser, aplikasi baca, galeri) memakai
   `MediaProjection` + overlay. Ketuk sekali untuk menerjemahkan layar, ketuk lagi untuk menghapus
   tempelan, tahan lama untuk mematikan bubble.
@@ -36,7 +39,7 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 
 Semua build pengujian tersedia di halaman release:
 
-**https://github.com/Rachdik/mangalens/releases** pilih MangaLens-tahap13-arm64-debug.apk
+**https://github.com/Rachdik/mangalens/releases** pilih APK terbaru yang tersedia.
 
 ### Manual upload APK
 
@@ -51,6 +54,7 @@ setelah commit berikutnya dipush. Atau gunakan GitHub Releases:
 Catatan:
 
 - APK di folder `releases/` adalah debug build (belum ditandatangani untuk rilis).
+- `assembleRelease` menghasilkan APK *unsigned*; APK rilis perlu keystore sendiri.
 - Package `com.mangalens.app` — uninstall versi lama sebelum memasang versi lain.
 - File APK tidak di-commit ke repository karena ukuran besar; Anda harus upload manual
   melalui GitHub Releases atau git push dengan -f setelah mengubah .gitignore.
@@ -70,13 +74,25 @@ MangaLens. Kegagalan pemasangan overlay dicatat di Logcat dengan tag `MangaLensO
 Catatan: mode **Otomatis** mengenali teks Latin sebagai Inggris. Untuk manga Spanyol/Prancis/Jerman,
 pilih bahasa sumbernya secara eksplisit agar terjemahan tidak salah arah.
 
-## Provider terjemahan (ML Kit / LLM)
+## Cara memakai terjemahan dari gambar yang dibagikan
+
+1. Buka gambar manga di aplikasi galeri/browser/chat.
+2. Pilih **Bagikan** lalu pilih **MangaLens**.
+3. MangaLens membuka layar hasil: OCR → deteksi balon → terjemahan.
+4. Hasil muncul sebagai dialog berisi daftar *Teks asli* dan *Terjemahan*.
+
+Jika gambar tidak bisa dibaca, aplikasi menampilkan pesan error (bukan hasil kosong). Gambar
+besar diperkecil otomatis (sisi terpanjang 2200 px) agar tidak kehabisan memori.
+
+## Provider terjemahan (ML Kit / LLM / MyMemory)
 
 Di kartu **Floating** ada pilihan **Provider terjemahan**:
 
 - **ML Kit (offline)** — bawaan, tanpa kunci API, model diunduh sekali. Hasil masih literal.
 - **LLM (OpenAI-compatible)** — hasil jauh lebih luwes karena diterjemahkan model bahasa.
   Butuh kunci API yang dibaca dari file `.env` saat build.
+- **MyMemory (gratis)** — tanpa kunci API, batas pemakaian ketat, kadang timeout. Dipakai
+  sebagai opsi ketiga; kualitas bervariasi.
 
 Menyiapkan provider LLM:
 
@@ -88,9 +104,6 @@ Menyiapkan provider LLM:
    LLM_BASE_URL=https://api.z.ai/api/paas/v4
    LLM_MODEL=glm-4-flash
    ```
-
-   `LLM_BASE_URL` bisa diganti endpoint apa pun yang kompatibel OpenAI
-   (`POST {base}/chat/completions`).
 3. Build ulang (`./gradlew :app:assembleDebug`), pasang APK, lalu pilih
    **LLM (OpenAI-compatible)** di aplikasi.
 
@@ -103,40 +116,93 @@ bagikan atau mengunggah APK yang dibangun dengan kunci asli. APK di halaman rele
 Butuh JDK 17 dan Android SDK (compileSdk 34). `local.properties` harus berisi `sdk.dir=...`.
 
 ```bash
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug      # APK debug per ABI
+./gradlew :app:assembleRelease    # APK release unsigned per ABI
+./gradlew clean assembleDebug assembleRelease
 ```
 
-Hasil build dipisah per ABI di `app/build/outputs/apk/debug/`:
+Hasil build dipisah per ABI di `app/build/outputs/apk/debug/` dan
+`app/build/outputs/apk/release/`:
 
-- `app-arm64-v8a-debug.apk`
-- `app-armeabi-v7a-debug.apk`
-- `app-x86_64-debug.apk`
+- `app-arm64-v8a-*.apk`
+- `app-armeabi-v7a-*.apk`
+- `app-x86_64-*.apk`
+
+Catatan build: ikon launcher harus berupa PNG asli (bukan JPEG yang di-rename) dan
+deklarasi `android:icon` tidak boleh diletakkan di tema library `ui` karena resource `mipmap`
+hanya ada di modul `app`. Kedua hal ini pernah membuat build bersih gagal.
 
 ## Struktur modul
 
 | Modul | Isi |
 | --- | --- |
-| `app` | Layar utama, galeri riwayat, pengaturan bahasa sumber |
+| `app` | Layar utama, galeri riwayat, pengaturan bahasa sumber, penerima share gambar |
 | `core` | Model, util, DI manual |
 | `ui` | Tema dan komponen tampilan |
 | `storage` | Room (riwayat bacaan) |
-| `reader` | WebView, deteksi gambar halaman, ekstraksi gambar asli |
+| `reader` | WebView, deteksi gambar halaman, ekstraksi gambar asli, pipeline terjemahan |
 | `floating` | Bubble melayang, overlay, tangkap layar `MediaProjection` |
 | `ocr` | OCR ML Kit, deteksi skrip/bahasa |
-| `translation` | Provider terjemahan ML Kit + perapian ragam bahasa |
-| `inpainting` | Deteksi balon, pengelompokan blok teks, penyusunan region terjemahan |
-| `imageprocessing` | Utilitas pemrosesan gambar |
+| `translation` | Provider terjemahan ML Kit, LLM, MyMemory + perapian ragam bahasa |
+| `inpainting` | Deteksi balon, pengelompokan blok teks, engine inpainting sederhana |
+| `imageprocessing` | Utilitas pemrosesan gambar (dHash) |
+
+## Inpainting: apa yang benar-benar dilakukan
+
+`BasicInpaintingEngine` **tidak** sekadar menutup area teks dengan satu warna solid. Untuk setiap
+piksel di dalam mask, engine mencari piksel asli terdekat di sisi kiri, kanan, atas, dan bawah,
+lalu mengisi piksel itu dengan rata-rata berbobot (1/jarak) dari keempat warna tersebut, kemudian
+melembutkan tepi mask. Dengan begitu latar polos dan gradien halus ikut tersambung.
+
+Keterbatasan (belum diuji pada perangkat):
+
+- **Latar polos / gradien halus** — biasanya menyatu dengan baik.
+- **Screentone dan pola garis** — tidak direkonstruksi; hasilnya tampak halus/blur.
+- **Garis gambar yang melewati teks** — ikut hilang di area mask (mask dilebarkan 6%).
+- Tidak memakai OpenCV atau model AI: kualitas **tidak** setara Content-Aware Fill/Photoshop
+  maupun inpainting berbasis model.
+
+Integrasi saat ini: `MangaPageTranslator.translateWithInpaint()` tersedia sebagai API dan
+mengembalikan bitmap hasil inpainting. **Overlay Reader dan bubble melayang masih memakai
+tempelan berwarna** (bukan bitmap hasil inpainting), jadi hasil inpainting belum tampil di UI
+mana pun.
 
 ## Batasan saat ini
 
-- Tempelan bersifat statis: setelah halaman digulir perlu ketuk bubble lagi (belum auto-refresh).
-- Teks asli ditutup warna latar, belum inpainting piksel penuh.
-- Kualitas terjemahan mengikuti ML Kit on-device: masih literal, dan teks yang salah dibaca OCR
-  (huruf sangat kecil/blur) akan salah diterjemahkan.
+- Tempelan di Reader bersifat statis: setelah halaman digulir perlu diproses lagi (belum
+  auto-refresh mengikuti posisi gambar).
+- Overlay Reader dan bubble melayang menutup teks asli dengan warna latar balon; bitmap hasil
+  inpainting belum dipakai di UI.
+- Kualitas terjemahan mengikuti provider: ML Kit masih literal, MyMemory bervariasi, LLM
+  bergantung model.
+- Teks yang salah dibaca OCR (huruf sangat kecil/blur) akan salah diterjemahkan.
 - Model ML Kit Translation perlu internet sekali untuk unduhan awal.
-- Hanya build debug; APK release butuh keystore.
+- Hanya build debug/unsigned yang tersedia; APK rilis butuh keystore.
+- `android:usesCleartextTraffic="true"` dipertahankan agar situs manga HTTP tetap bisa memuat
+  gambar; ini melonggarkan keamanan jaringan dan sebaiknya dianalisis ulang untuk rilis.
+- Kunci LLM (bila diisi) tertanam di APK.
 
 ## Perubahan terbaru (2026-11-23)
+
+### Sesi 2 — audit performa, perbaikan build, share receiver, inpainting
+
+- **Share receiver** (`ShareReceiverActivity`): menerima `ACTION_SEND` `image/*` dari Sharesheet,
+  decode dua tahap dengan batas 2200 px, bitmap selalu di-recycle, hasil berupa dialog teks.
+- **Audit auto-translation bridge**: rantai JS scan → download → OCR → terjemahan → overlay
+  terverifikasi lengkap; `ImageTranslationManager.reset()` dipanggil saat halaman berubah.
+- **Perbaikan bug use-after-recycle**: manager tidak lagi me-recycle bitmap yang masih dipakai
+  coroutine pipeline; file diserahkan ke `ReadTranslatePipeline.processImageFile`.
+- **Performa OCR**: orientasi dihitung sekali per halaman (sebelumnya satu pass OCR per blok) dan
+  gambar diperkecil ke 2400 px untuk OCR dengan pemetaan koordinat balik.
+- **Performa jaringan**: MyMemory dan LLM memakai `Dispatchers.IO`, MyMemory punya satu retry.
+- **Kebocoran**: WebView melepas JavascriptInterface + di-destroy; `BubbleOverlay` menghapus
+  callback handler; translator di-cache per backend.
+- **Inpainting**: `BasicInpaintingEngine` mengisi dari piksel asli empat sisi + pelebaran mask.
+- **Build bersih**: ikon launcher dikonversi ke PNG asli (48/72/96/144/192 px) dan deklarasi
+  ikon dipindah dari tema library `ui` ke `AndroidManifest` aplikasi. `clean assembleDebug
+  assembleRelease` kini berhasil.
+
+### Sesi 1 (sebelumnya)
 
 - **Fase 1 - Stabilisasi:** perbaikan resource missing (dimens.xml), peringatan compiler di
   ImageStore.kt, setup Android SDK.
@@ -144,10 +210,9 @@ Hasil build dipisah per ABI di `app/build/outputs/apk/debug/`:
   gratis ketiga, update TranslationBackend enum, UI strings, dan FloatingTranslateService.
 - **Fase 3 - OCR & Text Grouping:** tambah TextOrientation enum dan deteksi orientasi teks Jepang/
   Cina di MlKitOcrEngine, update BubbleDetector untuk support orientasi.
-- **Fase 4 - URL Reader & Auto Translation:** selesai ReadTranslatePipeline.kt dengan
-  MangaPageTranslator, integrasi di ReaderActivity, support 3 translation backend (ML Kit, LLM,
-  MyMemory).
-- **Icon:** update ikon aplikasi ke desain baru (Minimalist Bubble dengan gradient purple #4F46E5).
+- **Fase 4 - URL Reader & Auto Translation:** ReadTranslatePipeline.kt dengan
+  MangaPageTranslator, integrasi di ReaderActivity, support 3 translation backend.
+- **Icon:** update ikon aplikasi ke desain Minimalist Bubble dengan gradient purple #4F46E5.
 
 Rencana teknis dan catatan tiap tahap ada di [`docs/RENCANA-TEKNIS.md`](docs/RENCANA-TEKNIS.md).
 
