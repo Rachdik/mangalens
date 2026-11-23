@@ -75,7 +75,7 @@ class BubbleOverlay(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = circle(dp(56), 0xFF1F6FEB.toInt())
+            background = circle(dp(56), BUBBLE_COLOR)
             elevation = dp(8).toFloat()
             contentDescription = "Terjemahkan layar"
         }
@@ -389,7 +389,7 @@ class BubbleOverlay(
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = roundedRect(
-                color = 0xFFFDFBFA.toInt(),
+                color = 0xFFFFFFFF.toInt(),
                 radius = dp(16),
                 stroke = Color.argb(38, 0, 0, 0)
             )
@@ -405,7 +405,7 @@ class BubbleOverlay(
             text = "MangaLens"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(0xFF1F6FEB.toInt())
+            setTextColor(BUBBLE_COLOR)
         }
         val close = TextView(context).apply {
             text = "×"
@@ -503,6 +503,9 @@ class BubbleOverlay(
 
     private companion object {
         const val TAG = "MangaLensOverlay"
+
+        /** Indigo, sama dengan warna utama aplikasi. */
+        const val BUBBLE_COLOR = 0xFF4F46E5.toInt()
         const val MAX_TRANSLATIONS = 40
         const val MIN_TRANSLATION_WIDTH = 30
         const val MIN_TRANSLATION_HEIGHT = 16

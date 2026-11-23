@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="mangalens_primary">#1F6FEB</color>
-    <color name="mangalens_primary_dark">#1548A6</color>
-    <color name="mangalens_accent">#FF7A45</color>
+    <color name="mangalens_primary">#4F46E5</color>
+    <color name="mangalens_primary_dark">#312E81</color>
+    <color name="mangalens_primary_light">#EEF0FF</color>
+    <color name="mangalens_accent">#F97316</color>
+    <color name="mangalens_window">#F5F6FA</color>
+    <color name="mangalens_card">#FFFFFF</color>
+    <color name="mangalens_outline">#E7E9F2</color>
     <color name="mangalens_surface">#FFFDFBFA</color>
-    <color name="mangalens_on_surface">#1B1B1F</color>
-    <color name="mangalens_muted">#6B6B73</color>
+    <color name="mangalens_on_surface">#171725</color>
+    <color name="mangalens_muted">#6B6B7B</color>
+    <color name="mangalens_on_primary">#FFFFFF</color>
     <color name="mangalens_error">#B3261E</color>
 </resources>

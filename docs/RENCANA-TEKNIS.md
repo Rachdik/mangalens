@@ -665,3 +665,20 @@ kunci API, yang belum dipasang.
 
 APK: `dist/MangaLens-tahap9-arm64-debug.apk` (36.626.701 byte, SHA-256
 `b6d5e6157dcaefba2779cd7f9c238a7741b4c1b4bd3aa2844e4d1ce1c6959a06`).
+
+## 21. Pembaruan tampilan (UI tidak lagi polos)
+
+Layar utama dirombak tanpa mengubah logika:
+
+- Header gradien indigo→violet dengan sudut bawah membulat, judul dan subjudul putih.
+- Latar aplikasi abu lembut; URL, kartu penerjemah, dan riwayat memakai kartu putih
+  ber-radius 20dp dengan garis tepi halus.
+- Kolom URL bergaya field berisi ikon tempel teks dan tombol "Buka" bergradien.
+- Bagian penerjemah punya chip "FLOATING", label bahasa, dan tombol aksi penuh lebar.
+- Setiap entri riwayat menjadi kartu sendiri (judul tebal, host berwarna, waktu kecil).
+- Toolbar reader menjadi permukaan putih dengan elevasi, tombol kembali berwarna utama, dan
+  jumlah gambar dalam chip.
+- Warna utama diselaraskan ke indigo (#4F46E5); bubble floating ikut memakai warna yang sama.
+
+Build lulus (`BUILD SUCCESSFUL`). Tampilan belum diverifikasi lewat screenshot karena perangkat
+terputus dari adb saat pengecekan.

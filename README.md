@@ -30,7 +30,7 @@ Semua build pengujian tersedia di halaman release:
 
 **https://github.com/Rachdik/mangalens/releases/tag/apk-testing**
 
-Versi terbaru: **[MangaLens-tahap9-arm64-debug.apk](https://github.com/Rachdik/mangalens/releases/download/apk-testing/MangaLens-tahap9-arm64-debug.apk)**
+Versi terbaru: **[MangaLens-tahap10-arm64-debug.apk](https://github.com/Rachdik/mangalens/releases/download/apk-testing/MangaLens-tahap10-arm64-debug.apk)**
 
 Catatan:
 
