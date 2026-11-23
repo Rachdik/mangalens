@@ -29,6 +29,12 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 - **Terjemah gambar dari aplikasi lain** — kirim gambar manga ke MangaLens lewat Sharesheet
   (`ACTION_SEND` dengan MIME `image/*`). Gambar diproses lewat pipeline yang sama, hasilnya
   ditampilkan sebagai dialog berisi teks asli dan terjemahan.
+- **Tampilan bisa diganti** — menu Tampilan di halaman utama berisi 8 warna aksen
+  (Purple, Blue, Cyan, Green, Red, Orange, Pink, Teal) dan mode Terang/Gelap/Ikuti Sistem.
+  Pilihan disimpan di DataStore, diterapkan sebelum layout di-inflate (tetap benar setelah
+  Activity dibuat ulang), dan dipakai seluruh modul: Reader, Floating Translator, Share Receiver.
+- **Watermark versi** — `MangaLens • v<versionName>` di halaman utama; versi dibaca dari
+  `BuildConfig.VERSION_NAME` sehingga selalu sama dengan APK yang sedang berjalan.
 - **Bubble melayang** — bekerja di atas aplikasi lain (browser, aplikasi baca, galeri) memakai
   `MediaProjection` + overlay. Ketuk sekali untuk menerjemahkan layar, ketuk lagi untuk menghapus
   tempelan, tahan lama untuk mematikan bubble.
