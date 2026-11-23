@@ -1,10 +1,38 @@
 <resources>
-    <string-array name="source_scripts">
+    <!-- Urutan harus sama dengan daftar tag di MainActivity.sourceLanguages. -->
+    <string-array name="source_languages">
         <item>Otomatis</item>
+        <item>Inggris</item>
         <item>Jepang</item>
         <item>Korea</item>
-        <item>China</item>
+        <item>Tionghoa</item>
+        <item>Spanyol</item>
+        <item>Prancis</item>
+        <item>Jerman</item>
+        <item>Portugis</item>
+        <item>Rusia</item>
+        <item>Vietnam</item>
+        <item>Thailand</item>
+        <item>Melayu</item>
+        <item>Arab</item>
+    </string-array>
+
+    <!-- Urutan harus sama dengan daftar tag di MainActivity.targetLanguages. -->
+    <string-array name="target_languages">
+        <item>Indonesia</item>
         <item>Inggris</item>
+        <item>Jepang</item>
+        <item>Korea</item>
+        <item>Tionghoa</item>
+        <item>Melayu</item>
+        <item>Thailand</item>
+        <item>Vietnam</item>
+        <item>Spanyol</item>
+        <item>Prancis</item>
+        <item>Jerman</item>
+        <item>Portugis</item>
+        <item>Rusia</item>
+        <item>Arab</item>
     </string-array>
 
     <!-- Urutan harus sama dengan enum TranslationBackend (ML_KIT, LLM). -->

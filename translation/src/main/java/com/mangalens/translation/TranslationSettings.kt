@@ -28,6 +28,16 @@ class TranslationSettings(context: Context) {
         }.getOrDefault(TranslationBackend.ML_KIT)
         set(value) = prefs.edit().putString(KEY_BACKEND, value.name).apply()
 
+    /** "auto" atau kode BCP-47 bahasa sumber (mis. "en", "es", "ja"). */
+    var sourceTag: String
+        get() = prefs.getString(KEY_SOURCE, null) ?: "auto"
+        set(value) = prefs.edit().putString(KEY_SOURCE, value).apply()
+
+    /** Kode BCP-47 bahasa hasil terjemahan (default Indonesia). */
+    var targetTag: String
+        get() = prefs.getString(KEY_TARGET, null) ?: "id"
+        set(value) = prefs.edit().putString(KEY_TARGET, value).apply()
+
     companion object {
         /** True bila LLM_API_KEY dari .env ikut tertanam saat build. */
         val llmConfigured: Boolean
@@ -39,5 +49,7 @@ class TranslationSettings(context: Context) {
 
         private const val PREFS = "mangalens_translation"
         private const val KEY_BACKEND = "backend"
+        private const val KEY_SOURCE = "source_tag"
+        private const val KEY_TARGET = "target_tag"
     }
 }

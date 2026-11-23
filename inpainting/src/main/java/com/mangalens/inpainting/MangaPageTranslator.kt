@@ -54,13 +54,23 @@ data class PageTranslation(
  */
 class MangaPageTranslator(
     private val ocr: OcrEngine,
-    private val providerFactory: (String) -> TranslationProvider
+    /** (kode bahasa sumber, kode bahasa tujuan) -> provider. */
+    private val providerFactory: (String, String) -> TranslationProvider
 ) {
 
     private var provider: TranslationProvider? = null
-    private var providerTag: String? = null
+    private var providerKey: String? = null
 
-    suspend fun translate(bitmap: Bitmap, script: LanguageScript): PageTranslation {
+    /**
+     * @param sourceTag kode bahasa sumber, atau "auto" untuk dideteksi dari teks.
+     * @param targetTag kode bahasa hasil terjemahan.
+     */
+    suspend fun translate(
+        bitmap: Bitmap,
+        script: LanguageScript,
+        sourceTag: String = "auto",
+        targetTag: String = "id"
+    ): PageTranslation {
         val blocks = ocr.recognize(bitmap, script)
         if (blocks.isEmpty()) {
             return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script))
@@ -78,15 +88,17 @@ class MangaPageTranslator(
         }
 
         val joined = usable.joinToString(" ") { it.text }
-        val tag = ScriptDetector.languageTagOf(joined)
+        val detected = ScriptDetector.languageTagOf(joined)
+        val tag = if (sourceTag.isBlank() || sourceTag == "auto") detected else sourceTag
 
         val bubbles = BubbleDetector.detect(bitmap, usable)
         val regions = buildRegions(bitmap, usable, bubbles)
-        if (regions.isEmpty()) {
+        if (regions.isEmpty() || tag == targetTag) {
+            // Bahasa sumber sama dengan tujuan: tidak ada yang perlu diterjemahkan.
             return PageTranslation(emptyList(), usable.size, bubbles.size, tag)
         }
 
-        val translationProvider = providerFor(tag)
+        val translationProvider = providerFor(tag, targetTag)
         if (!translationProvider.prepare()) {
             throw IllegalStateException(
                 "Provider ${translationProvider.displayName} belum siap. " +
@@ -181,21 +193,22 @@ class MangaPageTranslator(
         )
     }
 
-    private fun providerFor(tag: String): TranslationProvider {
+    private fun providerFor(sourceTag: String, targetTag: String): TranslationProvider {
+        val key = "$sourceTag>$targetTag"
         val existing = provider
-        if (existing != null && providerTag == tag) return existing
+        if (existing != null && providerKey == key) return existing
 
         existing?.let { (it as? MlKitTranslationProvider)?.close() }
-        val created = providerFactory(tag)
+        val created = providerFactory(sourceTag, targetTag)
         provider = created
-        providerTag = tag
+        providerKey = key
         return created
     }
 
     fun close() {
         (provider as? MlKitTranslationProvider)?.close()
         provider = null
-        providerTag = null
+        providerKey = null
     }
 
     private data class Region(

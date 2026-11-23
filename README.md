@@ -14,8 +14,9 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
   OCR tetap tinggi.
 - **OCR on-device** — ML Kit Text Recognition bundled di APK, tanpa unduhan model saat pertama
   dipakai.
-- **Deteksi bahasa otomatis** — Latin, Jepang, Korea, dan Tionghoa dikenali dari teks yang
-  benar-benar terbaca, lalu pasangan bahasa terjemahan dipilih otomatis.
+- **Bahasa input & output bisa dipilih** — 14 bahasa sumber (otomatis, Inggris, Jepang, Korea,
+  Tionghoa, Spanyol, Prancis, Jerman, Portugis, Rusia, Vietnam, Thailand, Melayu, Arab) dan 14
+  bahasa output, bukan hanya Indonesia.
 - **Dua provider terjemahan** — ML Kit on-device (offline, tanpa kunci) atau LLM
   OpenAI-compatible (lebih luwes) yang dipilih dari layar utama.
 - **Tempel di balon** — teks Indonesia ditempel tepat di atas teks aslinya, seukuran kotak teks
@@ -31,7 +32,7 @@ Semua build pengujian tersedia di halaman release:
 
 **https://github.com/Rachdik/mangalens/releases/tag/apk-testing**
 
-Versi terbaru: **[MangaLens-tahap11-arm64-debug.apk](https://github.com/Rachdik/mangalens/releases/download/apk-testing/MangaLens-tahap11-arm64-debug.apk)**
+Versi terbaru: **[MangaLens-tahap12-arm64-debug.apk](https://github.com/Rachdik/mangalens/releases/download/apk-testing/MangaLens-tahap12-arm64-debug.apk)**
 
 Catatan:
 
@@ -41,7 +42,8 @@ Catatan:
 
 ## Cara memakai penerjemah layar
 
-1. Buka MangaLens, pilih bahasa sumber **Otomatis**, lalu ketuk **Aktifkan bubble**.
+1. Buka MangaLens, pilih **bahasa sumber** (atau biarkan Otomatis) dan **bahasa output**, lalu
+   ketuk **Aktifkan bubble**.
 2. Setujui izin "tampil di atas aplikasi lain", izin notifikasi, dan izin rekam layar.
 3. Buka manga di aplikasi/browser mana pun.
 4. Ketuk bubble biru **訳** — teks di layar diterjemahkan dan ditempel di posisinya.
@@ -49,6 +51,9 @@ Catatan:
 
 Jika bubble tidak muncul, pastikan izin **"Tampilkan di atas aplikasi lain"** aktif untuk
 MangaLens. Kegagalan pemasangan overlay dicatat di Logcat dengan tag `MangaLensOverlay`.
+
+Catatan: mode **Otomatis** mengenali teks Latin sebagai Inggris. Untuk manga Spanyol/Prancis/Jerman,
+pilih bahasa sumbernya secara eksplisit agar terjemahan tidak salah arah.
 
 ## Provider terjemahan (ML Kit / LLM)
 

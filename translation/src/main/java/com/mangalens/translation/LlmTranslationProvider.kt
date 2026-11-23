@@ -20,7 +20,7 @@ import java.net.URL
  */
 class LlmTranslationProvider(
     sourceTag: String,
-    @Suppress("UNUSED_PARAMETER") targetTag: String = "id",
+    targetTag: String = "id",
     private val apiKey: String = BuildConfig.LLM_API_KEY,
     baseUrl: String = BuildConfig.LLM_BASE_URL,
     private val model: String = BuildConfig.LLM_MODEL
@@ -28,6 +28,8 @@ class LlmTranslationProvider(
 
     private val endpoint: String = baseUrl.trimEnd('/') + "/chat/completions"
     private val sourceLanguage: String = languageName(sourceTag)
+    private val targetLanguage: String = languageName(targetTag)
+    private val targetTag: String = targetTag
 
     override val id: String = "llm:$model"
     override val displayName: String = if (model.isBlank()) "LLM" else "LLM ($model)"
@@ -75,10 +77,11 @@ class LlmTranslationProvider(
             val result = LinkedHashMap<String, String>()
             requests.forEachIndexed { index, request ->
                 val translated = texts.getOrNull(index)?.trim().orEmpty()
-                result[request.id] = if (translated.isEmpty()) {
-                    ""
-                } else {
-                    IndonesianStyle.casual(translated)
+                result[request.id] = when {
+                    translated.isEmpty() -> ""
+                    // Perapian ragam hanya untuk bahasa Indonesia.
+                    targetTag == "id" -> IndonesianStyle.casual(translated)
+                    else -> translated
                 }
             }
             TranslateResult.Success(result)
@@ -89,7 +92,7 @@ class LlmTranslationProvider(
 
     private fun systemPrompt(): String =
         "Kamu penerjemah manga profesional. Terjemahkan dialog dari $sourceLanguage ke " +
-            "bahasa Indonesia yang luwes, santai, dan wajar seperti percakapan komik. " +
+            "$targetLanguage yang luwes, santai, dan wajar seperti percakapan komik. " +
             "Pertahankan gaya bicara, emosi, dan nama tokoh. Jangan menambah atau mengurangi makna. " +
             "Balas HANYA dengan array JSON berisi string terjemahan, urutan dan jumlahnya sama " +
             "dengan input. Contoh: [\"Halo!\",\"Apa kau serius?\"]"
@@ -144,10 +147,20 @@ class LlmTranslationProvider(
     }
 
     private fun languageName(tag: String): String = when (tag) {
+        "id" -> "Indonesia"
+        "en" -> "Inggris"
         "ja" -> "Jepang"
         "ko" -> "Korea"
         "zh" -> "Tionghoa"
-        "en" -> "Inggris"
+        "es" -> "Spanyol"
+        "fr" -> "Prancis"
+        "de" -> "Jerman"
+        "pt" -> "Portugis"
+        "ru" -> "Rusia"
+        "vi" -> "Vietnam"
+        "th" -> "Thailand"
+        "ms" -> "Melayu"
+        "ar" -> "Arab"
         else -> tag.ifBlank { "bahasa asing" }
     }
 }

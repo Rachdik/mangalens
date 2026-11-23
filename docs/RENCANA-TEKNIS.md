@@ -716,3 +716,31 @@ belum diisi.
 tidak boleh dibagikan; APK di halaman release dibangun tanpa `.env`. Kualitas hasil LLM belum
 diuji di perangkat karena tidak ada kunci API pada lingkungan agen; yang terverifikasi baru
 kompilasi, pembacaan `.env`, dan build APK.
+
+## 23. Pilihan bahasa input dan output
+
+Sebelumnya bahasa sumber hanya berupa skrip OCR dan bahasa tujuan selalu Indonesia.
+
+**Perubahan:**
+- `TranslationSettings` menyimpan `sourceTag` (default `"auto"`) dan `targetTag` (default `"id"`)
+  di SharedPreferences, dipakai bersama oleh layar utama dan service bubble.
+- Layar utama punya dua spinner: **Bahasa sumber** (Otomatis, Inggris, Jepang, Korea, Tionghoa,
+  Spanyol, Prancis, Jerman, Portugis, Rusia, Vietnam, Thailand, Melayu, Arab) dan
+  **Bahasa output** (Indonesia, Inggris, Jepang, Korea, Tionghoa, Melayu, Thailand, Vietnam,
+  Spanyol, Prancis, Jerman, Portugis, Rusia, Arab).
+- `MangaPageTranslator.translate()` menerima `sourceTag`/`targetTag`; provider di-cache per pasangan
+  bahasa. Bila sumber dan tujuan sama, terjemahan dilewati.
+- `FloatingTranslateService` menurunkan recognizer OCR dari bahasa sumber (Jepang/Korea/Tionghoa
+  memakai model skrip masing-masing, bahasa Latin memakai recognizer Latin, `auto` memakai mode
+  otomatis) dan meneruskan kedua tag ke provider.
+- `LlmTranslationProvider` menyebut bahasa sumber dan tujuan di system prompt; perapian ragam
+  `IndonesianStyle` hanya diterapkan bila bahasa output Indonesia.
+- `FloatingSettings` dihapus karena pilihannya kini terpusat di `TranslationSettings`;
+  `FloatingTranslate.start()` tidak lagi mengirim bahasa lewat Intent.
+
+**Catatan:** mode `auto` masih menyimpulkan bahasa Latin sebagai Inggris (`ScriptDetector`), jadi
+untuk komik Spanyol/Prancis/Jerman pengguna perlu memilih bahasa sumbernya secara eksplisit agar
+terjemahan benar.
+
+**Verifikasi:** `BUILD SUCCESSFUL`. Daftar bahasa disejajarkan antara `arrays.xml` dan daftar tag di
+`MainActivity`. Uji di perangkat belum dilakukan karena HP tidak tersambung saat build.

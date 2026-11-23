@@ -38,13 +38,14 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels { MainViewModel.Factory }
 
-    /** Urutan harus sama dengan `@array/source_scripts`. */
-    private val sourceScripts = listOf(
-        "AUTO" to "auto",
-        "JAPANESE" to "ja",
-        "KOREAN" to "ko",
-        "CHINESE" to "zh",
-        "LATIN" to "en"
+    /** Urutan harus sama dengan `@array/source_languages`. */
+    private val sourceLanguages = listOf(
+        "auto", "en", "ja", "ko", "zh", "es", "fr", "de", "pt", "ru", "vi", "th", "ms", "ar"
+    )
+
+    /** Urutan harus sama dengan `@array/target_languages`. */
+    private val targetLanguages = listOf(
+        "id", "en", "ja", "ko", "zh", "ms", "th", "vi", "es", "fr", "de", "pt", "ru", "ar"
     )
 
     private val projectionLauncher = registerForActivityResult(
@@ -52,10 +53,7 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         val data = result.data
         if (result.resultCode == RESULT_OK && data != null) {
-            val option = sourceScripts.getOrElse(binding.scriptSpinner.selectedItemPosition) {
-                sourceScripts.first()
-            }
-            FloatingTranslate.start(this, result.resultCode, data, option.first, option.second)
+            FloatingTranslate.start(this, result.resultCode, data)
             binding.floatingButton.postDelayed({ updateFloatingButton() }, 400)
             toast(getString(R.string.bubble_running))
         } else {
@@ -86,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         translationSettings = TranslationSettings(this)
         setupProviderSpinner()
+        setupLanguageSpinners()
 
         historyAdapter = HistoryAdapter { entry -> openReader(entry.url) }
         binding.historyList.apply {
@@ -290,6 +289,44 @@ class MainActivity : AppCompatActivity() {
                 override fun onNothingSelected(parent: AdapterView<*>?) = Unit
             }
         updateProviderHint()
+    }
+
+    private fun setupLanguageSpinners() {
+        binding.scriptSpinner.setSelection(
+            sourceLanguages.indexOf(translationSettings.sourceTag).coerceAtLeast(0)
+        )
+        binding.scriptSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    translationSettings.sourceTag =
+                        sourceLanguages.getOrElse(position) { "auto" }
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+
+        binding.targetSpinner.setSelection(
+            targetLanguages.indexOf(translationSettings.targetTag).coerceAtLeast(0)
+        )
+        binding.targetSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    translationSettings.targetTag =
+                        targetLanguages.getOrElse(position) { "id" }
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
     }
 
     private fun updateProviderHint() {

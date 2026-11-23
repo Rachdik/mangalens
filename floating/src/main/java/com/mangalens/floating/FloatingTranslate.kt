@@ -15,8 +15,6 @@ object FloatingTranslate {
 
     const val EXTRA_RESULT_CODE = "result_code"
     const val EXTRA_RESULT_DATA = "result_data"
-    const val EXTRA_SCRIPT = "script"
-    const val EXTRA_LANGUAGE_TAG = "language_tag"
 
     /** Dibaca MainActivity untuk langsung meminta izin rekam layar lagi. */
     const val EXTRA_REQUEST_PROJECTION = "com.mangalens.floating.EXTRA_REQUEST_PROJECTION"
@@ -30,19 +28,11 @@ object FloatingTranslate {
 
     fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
 
-    fun start(
-        context: Context,
-        resultCode: Int,
-        data: Intent,
-        script: String,
-        languageTag: String
-    ) {
+    fun start(context: Context, resultCode: Int, data: Intent) {
         val intent = Intent(context, FloatingTranslateService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_RESULT_CODE, resultCode)
             putExtra(EXTRA_RESULT_DATA, data)
-            putExtra(EXTRA_SCRIPT, script)
-            putExtra(EXTRA_LANGUAGE_TAG, languageTag)
         }
         context.startForegroundService(intent)
     }

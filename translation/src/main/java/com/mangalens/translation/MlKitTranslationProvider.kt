@@ -21,7 +21,7 @@ class MlKitTranslationProvider(
 ) : TranslationProvider {
 
     private val sourceLanguage: String =
-        TranslateLanguage.fromLanguageTag(sourceTag) ?: TranslateLanguage.JAPANESE
+        TranslateLanguage.fromLanguageTag(sourceTag) ?: TranslateLanguage.ENGLISH
 
     private val targetLanguage: String =
         TranslateLanguage.fromLanguageTag(targetTag) ?: TranslateLanguage.INDONESIAN

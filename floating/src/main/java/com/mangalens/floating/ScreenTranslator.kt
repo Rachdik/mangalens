@@ -13,13 +13,17 @@ import com.mangalens.translation.TranslationProvider
  */
 class ScreenTranslator(
     ocr: OcrEngine,
-    providerFactory: (String) -> TranslationProvider
+    providerFactory: (String, String) -> TranslationProvider
 ) {
 
     private val page = MangaPageTranslator(ocr, providerFactory)
 
-    suspend fun translate(bitmap: Bitmap, script: LanguageScript): PageTranslation =
-        page.translate(bitmap, script)
+    suspend fun translate(
+        bitmap: Bitmap,
+        script: LanguageScript,
+        sourceTag: String = "auto",
+        targetTag: String = "id"
+    ): PageTranslation = page.translate(bitmap, script, sourceTag, targetTag)
 
     fun close() = page.close()
 }

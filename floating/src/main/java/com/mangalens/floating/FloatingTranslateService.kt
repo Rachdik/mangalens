@@ -47,7 +47,6 @@ import kotlinx.coroutines.withContext
 class FloatingTranslateService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private lateinit var settings: FloatingSettings
     private lateinit var overlay: BubbleOverlay
 
     private var projection: MediaProjection? = null
@@ -59,7 +58,6 @@ class FloatingTranslateService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        settings = FloatingSettings(this)
         translationSettings = TranslationSettings(this)
         overlay = BubbleOverlay(
             context = this,
@@ -77,13 +75,6 @@ class FloatingTranslateService : Service() {
 
         // startForeground wajib sebelum memakai MediaProjection (Android 14).
         startForegroundNow()
-
-        intent?.getStringExtra(FloatingTranslate.EXTRA_SCRIPT)?.let { name ->
-            runCatching { settings.script = LanguageScript.valueOf(name) }
-        }
-        intent?.getStringExtra(FloatingTranslate.EXTRA_LANGUAGE_TAG)?.let { tag ->
-            settings.languageTag = tag
-        }
 
         val resultCode = intent?.getIntExtra(FloatingTranslate.EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
             ?: Activity.RESULT_CANCELED
@@ -174,9 +165,16 @@ class FloatingTranslateService : Service() {
                 }
 
                 overlay.setStatus("Mendeteksi balon teks…")
+                val sourceTag = translationSettings.sourceTag
+                val targetTag = translationSettings.targetTag
                 val result = try {
                     withContext(Dispatchers.Default) {
-                        translator().translate(frame.bitmap, settings.script)
+                        translator().translate(
+                            bitmap = frame.bitmap,
+                            script = scriptFor(sourceTag),
+                            sourceTag = sourceTag,
+                            targetTag = targetTag
+                        )
                     }
                 } finally {
                     frame.bitmap.recycle()
@@ -193,7 +191,8 @@ class FloatingTranslateService : Service() {
     }
 
     private fun showResult(result: PageTranslation) {
-        val info = "OCR ${result.ocrBlocks} blok · ${result.detectedBubbles} balon · ${result.sourceTag}→id"
+        val info = "OCR ${result.ocrBlocks} blok · ${result.detectedBubbles} balon · " +
+            "${result.sourceTag}→${translationSettings.targetTag}"
 
         if (result.ocrBlocks == 0) {
             overlay.setStatus(
@@ -278,15 +277,24 @@ class FloatingTranslateService : Service() {
         translator?.let { if (translatorBackend == backend) return it }
 
         translator?.close()
-        val created = MangaPageTranslator(MlKitOcrEngine()) { tag ->
+        val created = MangaPageTranslator(MlKitOcrEngine()) { source, target ->
             when (backend) {
-                TranslationBackend.ML_KIT -> MlKitTranslationProvider(tag)
-                TranslationBackend.LLM -> LlmTranslationProvider(tag)
+                TranslationBackend.ML_KIT -> MlKitTranslationProvider(source, target)
+                TranslationBackend.LLM -> LlmTranslationProvider(source, target)
             }
         }
         translator = created
         translatorBackend = backend
         return created
+    }
+
+    /** Bahasa pilihan pengguna -> recognizer OCR yang sesuai skripnya. */
+    private fun scriptFor(sourceTag: String): LanguageScript = when {
+        sourceTag == "auto" -> LanguageScript.AUTO
+        sourceTag.startsWith("ja") -> LanguageScript.JAPANESE
+        sourceTag.startsWith("ko") -> LanguageScript.KOREAN
+        sourceTag.startsWith("zh") -> LanguageScript.CHINESE
+        else -> LanguageScript.LATIN
     }
 
     private fun startForegroundNow() {
