@@ -58,7 +58,7 @@ class ImageTranslationManager(
     fun processImage(image: DetectedImage) {
         val state = scanSession.states.value[image.key]
         if (state is ImageDownloadState.Ready) {
-            scope.launch { pipeline.processImageFile(state.file, "auto", "id")?.join() }
+            scope.launch { pipeline.processImageFile(state.file, image.url, "auto", "id")?.join() }
         }
     }
 
@@ -76,7 +76,7 @@ class ImageTranslationManager(
                         // Tunggu sampai gambar ini benar-benar selesai: memanggil
                         // processImageFile lagi akan membatalkan job yang berjalan,
                         // sehingga gambar sebelumnya tidak pernah selesai.
-                        val job = pipeline.processImageFile(state.file, "auto", "id")
+                        val job = pipeline.processImageFile(state.file, image.url, "auto", "id")
                         if (job == null) continue
                         job.join()
                         if (job.isCancelled) continue

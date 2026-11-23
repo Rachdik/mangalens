@@ -31,6 +31,7 @@ import com.mangalens.reader.images.ImageStore
 import com.mangalens.reader.images.NativeImageFetcher
 import com.mangalens.reader.images.PageContext
 import com.mangalens.translation.TranslationBackend
+import com.mangalens.ui.theme.MangaLensTheme
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -55,9 +56,11 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        MangaLensTheme.apply(this)
         super.onCreate(savedInstanceState)
         binding = ActivityReaderBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        MangaLensTheme.applySystemBars(this)
 
         scanSession = ImageScanSession(
             scope = lifecycleScope,
@@ -119,8 +122,8 @@ class ReaderActivity : AppCompatActivity() {
         // Callback dipanggil dari coroutine pipeline (Dispatchers.IO). Semua metode
         // WebView wajib dijalankan di thread yang membuat WebView, jadi hasilnya
         // diposting ke thread UI sebelum menyentuh WebView.
-        translatePipeline?.onTranslationReady = { bubbles ->
-            binding.webView.post { applyTranslationOverlay(bubbles) }
+        translatePipeline?.onImageTranslated = { result ->
+            binding.webView.post { applyTranslationOverlay(result) }
         }
 
         translationManager = ImageTranslationManager(
@@ -133,69 +136,62 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     /**
-     * Menempel hasil terjemahan di halaman web. Harus dipanggil di thread UI.
+     * Menempel hasil terjemahan pada gambar yang benar.
      *
-     * Catatan keterbatasan: koordinat bubble masih koordinat piksel gambar asli,
-     * belum dipetakan ke posisi gambar di dokumen (offset/scale), sehingga
-     * penempatan hanya pas bila gambar dirender seukuran aslinya.
+     * Koordinat bubble diubah menjadi fraksi 0..1 terhadap bitmap yang dipakai
+     * OCR, lalu JavaScript memetakannya ke ukuran/posisi gambar yang sedang
+     * dirender (getBoundingClientRect). Dengan begitu overlay tetap menempel saat
+     * gambar diperkecil/diperbesar CSS situs, saat lazy-load menggeser halaman,
+     * maupun saat halaman digulir.
      */
-    private fun applyTranslationOverlay(bubbles: List<TranslatedBubble>) {
+    private fun applyTranslationOverlay(result: ImageTranslation) {
         if (isFinishing || isDestroyed) return
-        val webView = binding.webView
+        val url = result.imageUrl
+        if (url.isNullOrBlank() || result.imageWidth <= 0 || result.imageHeight <= 0) {
+            // Tidak ada konteks gambar (mis. OCR gagal): jangan tinggalkan overlay lama.
+            return
+        }
 
-        if (bubbles.isEmpty()) {
+        val webView = binding.webView
+        if (result.bubbles.isEmpty()) {
+            // Gambar ini tidak punya teks: pastikan overlay lamanya dibuang,
+            // bukan meninggalkan kotak kosong.
             webView.evaluateJavascript(
-                "(function(){var o=document.getElementById('mangalens-overlay');if(o)o.remove();})();",
+                "window.__mangalensRemoveOverlay&&" +
+                    "window.__mangalensRemoveOverlay(${JSONObject.quote(url)});",
                 null
             )
             return
         }
-
-        val items = bubbles.joinToString(",") { bubble ->
+        val items = result.bubbles.joinToString(",") { bubble ->
             val bounds = bubble.bounds
+            val fx = bounds.left.toDouble() / result.imageWidth
+            val fy = bounds.top.toDouble() / result.imageHeight
+            val fw = bounds.width().toDouble() / result.imageWidth
+            val fh = bounds.height().toDouble() / result.imageHeight
             val background = "rgba(" +
                 Color.red(bubble.fillColor) + "," +
                 Color.green(bubble.fillColor) + "," +
-                Color.blue(bubble.fillColor) + ",0.7)"
+                Color.blue(bubble.fillColor) + ",0.72)"
             val foreground = "#" + String.format(java.util.Locale.US, "%06X", 0xFFFFFF and bubble.textColor)
-            "{\"l\":${bounds.left},\"t\":${bounds.top},\"w\":${bounds.width()},\"h\":${bounds.height()}," +
+            "{\"fx\":$fx,\"fy\":$fy,\"fw\":$fw,\"fh\":$fh," +
                 "\"bg\":\"$background\",\"fg\":\"$foreground\"," +
-                "\"x\":${JSONObject.quote(bubble.targetText)}}"
+                "\"text\":${JSONObject.quote(bubble.targetText)}}"
         }
+        val payload = "{\"url\":${JSONObject.quote(url)},\"items\":[$items]}"
 
-        Log.d(TAG_OVERLAY, "render ${bubbles.size} terjemahan")
+        Log.d(
+            TAG_OVERLAY,
+            "render ${result.bubbles.size} terjemahan (${result.imageWidth}x${result.imageHeight})"
+        )
 
-        val script = """
-            (function() {
-                var items = [$items];
-                var c = document.getElementById('mangalens-overlay');
-                if (!c) {
-                    c = document.createElement('div');
-                    c.id = 'mangalens-overlay';
-                    c.style.cssText = 'position:absolute;top:0;left:0;width:100%;min-height:100%;pointer-events:none;z-index:9999;';
-                    document.body.appendChild(c);
-                }
-                var old = c.querySelectorAll('.mangalens-translation');
-                for (var i = 0; i < old.length; i++) { old[i].remove(); }
-                items.forEach(function(it) {
-                    var d = document.createElement('div');
-                    d.className = 'mangalens-translation';
-                    d.style.cssText = 'position:absolute;box-sizing:border-box;overflow:hidden;padding:2px;' +
-                        'font-size:14px;line-height:1.2;border-radius:4px;pointer-events:none;' +
-                        'left:' + it.l + 'px;top:' + it.t + 'px;width:' + it.w + 'px;height:' + it.h + 'px;' +
-                        'background-color:' + it.bg + ';color:' + it.fg + ';';
-                    d.textContent = it.x;
-                    c.appendChild(d);
-                });
-                return c.querySelectorAll('.mangalens-translation').length;
-            })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(script) { result ->
-            Log.d(TAG_OVERLAY, "overlay DOM nodes=$result")
+        webView.evaluateJavascript(
+            "(function(){var p=$payload;" +
+                "return window.__mangalensOverlay?window.__mangalensOverlay(p):-1;})();"
+        ) { domCount ->
+            Log.d(TAG_OVERLAY, "overlay containers=$domCount")
         }
     }
-
 
     private fun configureWebView() {
         binding.webView.settings.apply {
@@ -221,6 +217,13 @@ class ReaderActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 scanSession.reset()
                 translationManager?.reset()
+                // Hentikan OCR/terjemahan halaman lama; hasilnya sudah tidak relevan.
+                translatePipeline?.cancel()
+                // Overlay halaman lama harus hilang total sebelum halaman baru diproses.
+                binding.webView.evaluateJavascript(
+                    "window.__mangalensClearOverlays&&window.__mangalensClearOverlays();",
+                    null
+                )
                 viewModel.onPageStarted(url.orEmpty())
             }
 

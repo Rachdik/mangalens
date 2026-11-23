@@ -8,9 +8,6 @@ import com.mangalens.inpainting.MangaPageTranslator
 import com.mangalens.inpainting.TranslatedBubble
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
-import com.mangalens.translation.LlmTranslationProvider
-import com.mangalens.translation.MlKitTranslationProvider
-import com.mangalens.translation.MyMemoryTranslationProvider
 import com.mangalens.translation.TranslationBackend
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +40,7 @@ class ReadTranslatePipeline(
         private set
     var progress: Int = 0
         private set
-    var onTranslationReady: ((List<TranslatedBubble>) -> Unit)? = null
+    var onImageTranslated: ((ImageTranslation) -> Unit)? = null
 
     fun setTranslationBackend(backend: TranslationBackend) {
         if (this.backend == backend && translator != null) return
@@ -58,9 +55,10 @@ class ReadTranslatePipeline(
             return
         }
         startJob {
-            getTranslator()
+            val bubbles = getTranslator()
                 .translate(bitmap, LanguageScript.AUTO, sourceTag, targetTag)
                 .bubbles
+            ImageTranslation(null, bubbles, bitmap.width, bitmap.height)
         }
     }
 
@@ -69,42 +67,49 @@ class ReadTranslatePipeline(
      * Mengembalikan [Job] agar pemanggil bisa menunggu sampai gambar ini selesai
      * sebelum memproses gambar berikutnya (memanggil lagi akan membatalkan job).
      */
-    fun processImageFile(file: File, sourceTag: String = "auto", targetTag: String = "id"): Job? {
+    fun processImageFile(
+        file: File,
+        imageUrl: String? = null,
+        sourceTag: String = "auto",
+        targetTag: String = "id"
+    ): Job? {
         if (!Dependencies.isReady()) {
             status = PipelineStatus.Error
             return null
         }
         progress = 10
         return startJob {
-            val bitmap = decodeBounded(file) ?: return@startJob emptyList()
+            val bitmap = decodeBounded(file)
+                ?: return@startJob ImageTranslation(imageUrl, emptyList(), 0, 0)
             try {
                 progress = 30
-                getTranslator()
+                val bubbles = getTranslator()
                     .translate(bitmap, LanguageScript.AUTO, sourceTag, targetTag)
                     .bubbles
+                ImageTranslation(imageUrl, bubbles, bitmap.width, bitmap.height)
             } finally {
                 if (!bitmap.isRecycled) bitmap.recycle()
             }
         }
     }
 
-    private fun startJob(block: suspend () -> List<TranslatedBubble>): Job {
+    private fun startJob(block: suspend () -> ImageTranslation): Job {
         currentJob?.cancel()
         status = PipelineStatus.Processing
         progress = 0
         currentJob = scope.launch {
             try {
-                val bubbles = block()
+                val result = block()
                 progress = 100
                 status = PipelineStatus.Done
-                onTranslationReady?.invoke(bubbles)
+                onImageTranslated?.invoke(result)
             } catch (c: CancellationException) {
                 // Job diganti job baru atau pipeline ditutup: bukan error.
                 status = PipelineStatus.Idle
                 throw c
             } catch (t: Throwable) {
                 status = PipelineStatus.Error
-                onTranslationReady?.invoke(emptyList())
+                onImageTranslated?.invoke(ImageTranslation(null, emptyList(), 0, 0))
             }
         }
         return currentJob!!
@@ -116,11 +121,9 @@ class ReadTranslatePipeline(
 
         closeTranslator()
         val created = MangaPageTranslator(MlKitOcrEngine()) { source, target ->
-            when (backend) {
-                TranslationBackend.ML_KIT -> MlKitTranslationProvider(source, target)
-                TranslationBackend.LLM -> LlmTranslationProvider(source, target)
-                TranslationBackend.MY_MEMORY -> MyMemoryTranslationProvider(source, target)
-            }
+            // Factory bersama dengan Share Receiver, supaya kedua jalur masuk
+            // tidak pernah memakai pemetaan provider yang berbeda.
+            com.mangalens.translation.TranslationProviders.create(backend, source, target)
         }
         translator = created
         translatorBackend = backend
@@ -180,3 +183,18 @@ class ReadTranslatePipeline(
         const val MAX_DECODE_DIMENSION = 2400
     }
 }
+
+/**
+ * Hasil terjemahan satu gambar.
+ *
+ * [imageUrl] adalah URL gambar yang diterjemahkan (null untuk pemrosesan
+ * bitmap manual), [imageWidth]/[imageHeight] adalah ukuran bitmap yang dipakai
+ * OCR. Overlay memakai keduanya untuk mengubah koordinat piksel menjadi fraksi
+ * 0..1 lalu menskalakannya ke ukuran gambar yang benar-benar dirender WebView.
+ */
+data class ImageTranslation(
+    val imageUrl: String?,
+    val bubbles: List<TranslatedBubble>,
+    val imageWidth: Int,
+    val imageHeight: Int
+)
