@@ -14,11 +14,15 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
   OCR tetap tinggi.
 - **OCR on-device** — ML Kit Text Recognition bundled di APK, tanpa unduhan model saat pertama
   dipakai.
+- **Deteksi orientasi teks** — mendeteksi teks vertikal (tategaki) Jepang/Cina untuk pergeseran
+  bubble yang tepat.
 - **Bahasa input & output bisa dipilih** — 14 bahasa sumber (otomatis, Inggris, Jepang, Korea,
   Tionghoa, Spanyol, Prancis, Jerman, Portugis, Rusia, Vietnam, Thailand, Melayu, Arab) dan 14
   bahasa output, bukan hanya Indonesia.
-- **Dua provider terjemahan** — ML Kit on-device (offline, tanpa kunci) atau LLM
-  OpenAI-compatible (lebih luwes) yang dipilih dari layar utama.
+- **Tiga provider terjemahan** — ML Kit on-device (offline, tanpa kunci), LLM
+  OpenAI-compatible (lebih luwes), atau MyMemory (gratis, daring).
+- **Pipeline terjemahan otomatis di Reader** — ReadTranslatePipeline memproses gambar halaman
+  dengan OCR → deteksi balon → terjemahan → hasil siap untuk overlay.
 - **Tempel di balon** — teks Indonesia ditempel tepat di atas teks aslinya, seukuran kotak teks
   agar gambar di sekitar balon tetap terlihat. Teks di luar balon (kotak narasi, tulisan pada
   gambar) juga diterjemahkan.
@@ -120,6 +124,19 @@ Hasil build dipisah per ABI di `app/build/outputs/apk/debug/`:
   (huruf sangat kecil/blur) akan salah diterjemahkan.
 - Model ML Kit Translation perlu internet sekali untuk unduhan awal.
 - Hanya build debug; APK release butuh keystore.
+
+## Perubahan terbaru (2026-11-23)
+
+- **Fase 1 - Stabilisasi:** perbaikan resource missing (dimens.xml), peringatan compiler di
+  ImageStore.kt, setup Android SDK.
+- **Fase 2 - Multi-provider Translation:** tambah MyMemoryTranslationProvider sebagai provider
+  gratis ketiga, update TranslationBackend enum, UI strings, dan FloatingTranslateService.
+- **Fase 3 - OCR & Text Grouping:** tambah TextOrientation enum dan deteksi orientasi teks Jepang/
+  Cina di MlKitOcrEngine, update BubbleDetector untuk support orientasi.
+- **Fase 4 - URL Reader & Auto Translation:** selesai ReadTranslatePipeline.kt dengan
+  MangaPageTranslator, integrasi di ReaderActivity, support 3 translation backend (ML Kit, LLM,
+  MyMemory).
+- **Icon:** update ikon aplikasi ke desain baru (Minimalist Bubble dengan gradient purple #4F46E5).
 
 Rencana teknis dan catatan tiap tahap ada di [`docs/RENCANA-TEKNIS.md`](docs/RENCANA-TEKNIS.md).
 
