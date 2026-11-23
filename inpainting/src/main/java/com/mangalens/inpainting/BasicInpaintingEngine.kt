@@ -95,7 +95,7 @@ class BasicInpaintingEngine(
         for (y in bbox.top until bbox.bottom) {
             for (x in bbox.left until bbox.right) {
                 val index = y * width + x
-                if (maskPixels[index] == 0) continue
+                if (!isMasked(maskPixels[index])) continue
 
                 val weightLeft = 1.0 / (x - bbox.left + 1)
                 val weightRight = 1.0 / (bbox.right - x)
@@ -148,7 +148,7 @@ class BasicInpaintingEngine(
         while (if (step < 0) x >= limit else x <= limit) {
             if (x in 0 until width) {
                 val index = y * width + x
-                if (maskPixels[index] == 0) {
+                if (!isMasked(maskPixels[index])) {
                     val color = pixels[index]
                     if (Color.alpha(color) > 16) return color
                 }
@@ -173,7 +173,7 @@ class BasicInpaintingEngine(
         while (if (step < 0) y >= limit else y <= limit) {
             if (y in 0 until height) {
                 val index = y * width + x
-                if (maskPixels[index] == 0) {
+                if (!isMasked(maskPixels[index])) {
                     val color = pixels[index]
                     if (Color.alpha(color) > 16) return color
                 }
@@ -194,7 +194,7 @@ class BasicInpaintingEngine(
         var sumB = 0L
         var index = 0
         while (index < pixels.size) {
-            if (maskPixels[index] == 0) {
+            if (!isMasked(maskPixels[index])) {
                 val color = pixels[index]
                 if (Color.alpha(color) > 16) {
                     sumR += Color.red(color)
@@ -239,7 +239,7 @@ class BasicInpaintingEngine(
         for (y in blendArea.top until blendArea.bottom) {
             for (x in blendArea.left until blendArea.right) {
                 val index = y * width + x
-                if (maskPixels[index] == 0) continue
+                if (!isMasked(maskPixels[index])) continue
 
                 var count = 0
                 var sumR = 0
@@ -248,7 +248,7 @@ class BasicInpaintingEngine(
                 for (yy in max(0, y - 1)..min(height - 1, y + 1)) {
                     for (xx in max(0, x - 1)..min(width - 1, x + 1)) {
                         val neighbour = yy * width + xx
-                        if (maskPixels[neighbour] == 0) {
+                        if (!isMasked(maskPixels[neighbour])) {
                             val color = snapshot[neighbour]
                             sumR += Color.red(color)
                             sumG += Color.green(color)
@@ -280,6 +280,21 @@ class BasicInpaintingEngine(
         )
     }
 
+
+    /**
+     * Piksel mask yang harus diisi adalah piksel TERANG (putih), sesuai
+     * konvensi [MangaPageTranslator.createMask]: putih = area teks, hitam =
+     * area yang dipertahankan.
+     *
+     * Sebelumnya kode mengecek `maskPixels[i] != 0`. Itu salah karena hitam
+     * opaque bernilai 0xFF000000 (bukan 0), sehingga seluruh halaman dianggap
+     * area mask dan seluruh gambar ikut diisi ulang.
+     */
+    private fun isMasked(color: Int): Boolean {
+        val luminance = (Color.red(color) + Color.green(color) + Color.blue(color)) / 3
+        return luminance > MASK_LUMINANCE_THRESHOLD
+    }
+
     private fun boundingBoxOf(maskPixels: IntArray, width: Int, height: Int): Rect? {
         var minX = Int.MAX_VALUE
         var minY = Int.MAX_VALUE
@@ -289,7 +304,7 @@ class BasicInpaintingEngine(
         for (y in 0 until height) {
             val rowStart = y * width
             for (x in 0 until width) {
-                if (maskPixels[rowStart + x] != 0) {
+                if (isMasked(maskPixels[rowStart + x])) {
                     if (x < minX) minX = x
                     if (y < minY) minY = y
                     if (x > maxX) maxX = x
@@ -304,5 +319,8 @@ class BasicInpaintingEngine(
     private companion object {
         /** Bobot warna hasil isi terhadap warna sekitarnya saat melembutkan tepi. */
         const val SOFTEN_FACTOR = 0.75
+
+        /** Ambang kecerahan mask: di atas ini dianggap area teks. */
+        const val MASK_LUMINANCE_THRESHOLD = 127
     }
 }
