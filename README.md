@@ -10,6 +10,10 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 
 - **Reader internal** — tempel URL manga, halaman dibuka di WebView, riwayat bacaan disimpan di
   Room.
+- **Dukungan halaman `<canvas>`** — situs yang menggambar halaman komik ke `<canvas>`
+  (mis. kmanga) ikut diterjemahkan. Bila canvas tainted karena gambar CDN cross-origin,
+  isinya diambil lewat PixelCopy bertahap dari WebView, lalu masuk pipeline OCR yang sama.
+  Overlay memakai `position:fixed` sehingga tetap menempel pada scroller internal situs.
 - **Deteksi gambar asli** — mengambil gambar dari halaman (bukan screenshot layar) agar kualitas
   OCR tetap tinggi.
 - **OCR on-device** — ML Kit Text Recognition bundled di APK, tanpa unduhan model saat pertama
