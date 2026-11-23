@@ -422,7 +422,8 @@ tategaki, patch-based inpainting, OEM background service).
 |---|---|---|
 | 1 Audit | selesai | laporan audit |
 | 2 Scaffold + URL/WebView | scaffold & build selesai; **belum diuji jalan** | `./gradlew :app:assembleDebug` BUILD SUCCESSFUL, `app-debug.apk` 3,6 MB. Uji runtime emulator belum selesai (emulator tidak selesai boot dan dihentikan), jadi belum ada bukti aplikasi berjalan tanpa crash |
-| 3–10 | belum | — |
+| 3 Ekstraksi gambar | diimplementasikan; **belum diuji di device** | skrip `mangalens_scan.js`, `ImageScanSession`, `NativeImageFetcher`, `ImageStore`, panel “Gambar N”. Build lulus; belum ada bukti pada situs nyata |
+| 4–10 | belum | — |
 
 Modul yang benar-benar ada di `settings.gradle.kts`: `app, core, ui, storage, reader, floating, ocr,
 translation, inpainting, imageprocessing` (10 modul). `ui` adalah modul ke-10 di luar daftar awal, hanya

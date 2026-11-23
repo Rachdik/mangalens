@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/imageRecycler"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:minHeight="320dp" />
+
+    <TextView
+        android:id="@+id/emptyImages"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:padding="@dimen/space_l"
+        android:text="@string/images_empty"
+        android:textColor="@color/mangalens_muted"
+        android:visibility="gone" />
+
+</FrameLayout>

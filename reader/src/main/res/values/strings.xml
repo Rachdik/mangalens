@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="reader_back">Kembali</string>
+    <string name="image_count">Gambar %1$d</string>
+    <string name="image_count_initial">Gambar 0</string>
+    <string name="detected_images">Gambar terdeteksi</string>
+    <string name="images_empty">Belum ada gambar terdeteksi. Gulir halaman lalu coba lagi.</string>
+    <string name="image_row_meta">%1$d×%2$d · posisi %3$d</string>
+    <string name="image_status_pending">Menunggu</string>
+    <string name="image_status_downloading">Mengunduh…</string>
+    <string name="image_status_ready">Tersimpan di cache · %1$s</string>
+    <string name="image_status_failed">Gagal: %1$s</string>
 </resources>

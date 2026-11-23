@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -20,11 +21,27 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.mangalens.core.di.Dependencies
 import com.mangalens.reader.databinding.ActivityReaderBinding
+import com.mangalens.reader.images.DetectedImage
+import com.mangalens.reader.images.ImageListSheet
+import com.mangalens.reader.images.ImageScanSession
+import com.mangalens.reader.images.ImageStore
+import com.mangalens.reader.images.NativeImageFetcher
+import com.mangalens.reader.images.PageContext
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import java.io.File
 
 class ReaderActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityReaderBinding
+    private lateinit var scanSession: ImageScanSession
+    private var imageSheet: ImageListSheet? = null
+
+    private val scanScript: String by lazy {
+        runCatching {
+            assets.open(SCAN_SCRIPT).bufferedReader().use { it.readText() }
+        }.getOrDefault("")
+    }
 
     private val viewModel: ReaderViewModel by viewModels {
         ReaderViewModel.factory(intent.getStringExtra(EXTRA_URL).orEmpty())
@@ -35,11 +52,24 @@ class ReaderActivity : AppCompatActivity() {
         binding = ActivityReaderBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        scanSession = ImageScanSession(
+            scope = lifecycleScope,
+            fetcher = NativeImageFetcher(),
+            store = ImageStore(File(cacheDir, "source-images")),
+            pageContext = {
+                PageContext(
+                    pageUrl = binding.webView.url ?: viewModel.state.value.url,
+                    userAgent = binding.webView.settings.userAgentString
+                )
+            }
+        )
+
         configureWebView()
 
         binding.backButton.setOnClickListener {
             if (binding.webView.canGoBack()) binding.webView.goBack() else finish()
         }
+        binding.imageCountButton.setOnClickListener { openImageSheet() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -58,6 +88,14 @@ class ReaderActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.state.collect(::render)
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                scanSession.images.collect { images ->
+                    binding.imageCountButton.text = getString(R.string.image_count, images.size)
+                }
             }
         }
     }
@@ -79,9 +117,12 @@ class ReaderActivity : AppCompatActivity() {
             setAcceptThirdPartyCookies(binding.webView, true)
         }
 
+        binding.webView.addJavascriptInterface(ScanBridge(), "MangaLensBridge")
+
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                scanSession.reset()
                 viewModel.onPageStarted(url.orEmpty())
             }
 
@@ -90,6 +131,7 @@ class ReaderActivity : AppCompatActivity() {
                 val pageUrl = url.orEmpty()
                 val pageTitle = view?.title.orEmpty()
                 viewModel.onPageFinished(pageUrl, pageTitle)
+                injectScanner()
 
                 if (pageUrl.isNotBlank() && Dependencies.isReady()) {
                     lifecycleScope.launch {
@@ -116,6 +158,16 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
+    private fun injectScanner() {
+        if (scanScript.isBlank()) return
+        binding.webView.evaluateJavascript(scanScript, null)
+    }
+
+    private fun openImageSheet() {
+        val sheet = imageSheet ?: ImageListSheet(this, scanSession).also { imageSheet = it }
+        sheet.show()
+    }
+
     private fun render(state: ReaderUiState) {
         binding.titleView.text = state.title.ifBlank { state.url }
         binding.progressBar.progress = state.progress
@@ -124,6 +176,33 @@ class ReaderActivity : AppCompatActivity() {
         val error = state.errorMessage
         binding.errorView.text = error
         binding.errorView.visibility = if (error.isNullOrBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun parseCandidates(json: String): List<DetectedImage> = runCatching {
+        val array = JSONArray(json)
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val url = item.optString("url").takeIf { it.isNotBlank() } ?: continue
+                add(
+                    DetectedImage(
+                        url = url,
+                        width = item.optInt("w"),
+                        height = item.optInt("h"),
+                        docOrder = item.optInt("docOrder"),
+                        sequence = item.optInt("seq")
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private inner class ScanBridge {
+        @JavascriptInterface
+        fun onImages(json: String) {
+            val candidates = parseCandidates(json)
+            if (candidates.isNotEmpty()) scanSession.onCandidates(candidates)
+        }
     }
 
     override fun onPause() {
@@ -149,6 +228,7 @@ class ReaderActivity : AppCompatActivity() {
     companion object {
         private const val EXTRA_URL = "com.mangalens.reader.EXTRA_URL"
         private const val KEY_WEBVIEW_STATE = "reader_webview_state"
+        private const val SCAN_SCRIPT = "mangalens_scan.js"
 
         fun intent(context: Context, url: String): Intent =
             Intent(context, ReaderActivity::class.java).putExtra(EXTRA_URL, url)
