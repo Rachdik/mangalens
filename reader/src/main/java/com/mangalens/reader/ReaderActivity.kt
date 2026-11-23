@@ -3,6 +3,7 @@ package com.mangalens.reader
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.webkit.CookieManager
@@ -27,6 +28,7 @@ import com.mangalens.reader.images.ImageScanSession
 import com.mangalens.reader.images.ImageStore
 import com.mangalens.reader.images.NativeImageFetcher
 import com.mangalens.reader.images.PageContext
+import com.mangalens.translation.TranslationBackend
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.io.File
@@ -36,6 +38,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var binding: ActivityReaderBinding
     private lateinit var scanSession: ImageScanSession
     private var imageSheet: ImageListSheet? = null
+    private var translatePipeline: ReadTranslatePipeline? = null
 
     private val scanScript: String by lazy {
         runCatching {
@@ -95,6 +98,43 @@ class ReaderActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 scanSession.images.collect { images ->
                     binding.imageCountButton.text = getString(R.string.image_count, images.size)
+                }
+            }
+        }
+
+        if (Dependencies.isReady()) {
+            translatePipeline = ReadTranslatePipeline(this)
+            translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
+            translatePipeline?.onTranslationReady = { bubbles ->
+                bubbles.forEach { bubble ->
+                    // Tempel teks terjemahan di WebView
+                    val overlay = buildString {
+                        append("<div style='position:absolute;left:")
+                        append(bubble.bounds.left)
+                        append("px;top:")
+                        append(bubble.bounds.top)
+                        append("px;width:")
+                        append(bubble.bounds.width())
+                        append("px;height:")
+                        append(bubble.bounds.height())
+                        append("px;background-color:rgba(")
+                        append(Color.red(bubble.fillColor))
+                        append(",")
+                        append(Color.green(bubble.fillColor))
+                        append(",")
+                        append(Color.blue(bubble.fillColor))
+                        append(",0.7);color:#")
+                        append(String.format("%06X", 0xFFFFFF and bubble.textColor))
+                        append(";padding:2px;font-size:14px;z-index:1000;'>")
+                        append(bubble.targetText)
+                        append("</div>")
+                    }
+                    runCatching {
+                        binding.webView.evaluateJavascript(
+                            "document.getElementById('mangalens-overlay')",
+                            null
+                        )
+                    }
                 }
             }
         }
@@ -218,6 +258,8 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        translatePipeline?.close()
+        translatePipeline = null
         if (isFinishing) {
             binding.webView.stopLoading()
             binding.webView.destroy()
