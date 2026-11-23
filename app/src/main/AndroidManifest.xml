@@ -7,7 +7,9 @@
     <application
         android:name=".MangaLensApp"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MangaLens"
         android:usesCleartextTraffic="true">
@@ -39,7 +41,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Terima gambar dari Sharesheet / aplikasi lain -->
+        <!-- Terima gambar dari Sharesheet / aplikasi lain (image MIME). -->
         <activity
             android:name=".share.ShareReceiverActivity"
             android:exported="true"

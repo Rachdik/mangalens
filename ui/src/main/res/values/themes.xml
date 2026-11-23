@@ -13,7 +13,5 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/mangalens_on_surface</item>
         <item name="android:textColorSecondary">@color/mangalens_muted</item>
-        <item name="android:icon">@mipmap/ic_launcher</item>
-        <item name="android:logo">@mipmap/ic_launcher</item>
     </style>
 </resources>
