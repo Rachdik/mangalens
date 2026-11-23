@@ -84,7 +84,14 @@ class ShareReceiverActivity : AppCompatActivity() {
     private fun handleSend(intent: android.content.Intent) {
         val type = intent.type
         if (type != null && type.startsWith("image/")) {
-            val uri = intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, Uri::class.java)
+            // getParcelableExtra(name, Class) baru ada di API 33; memanggilnya di
+            // Android 8-12 melempar NoSuchMethodError.
+            val uri: Uri? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+            }
             if (uri != null) {
                 when (uri.scheme) {
                     "file" -> handleFileUri(uri)
