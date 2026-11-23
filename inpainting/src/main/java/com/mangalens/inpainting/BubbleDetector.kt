@@ -3,7 +3,9 @@ package com.mangalens.inpainting
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
+import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.RecognizedBlock
+import com.mangalens.ocr.TextOrientation
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -46,22 +48,47 @@ object BubbleDetector {
     private const val MAX_GROW_FACTOR = 0.9f
 
     fun detect(bitmap: Bitmap, blocks: List<RecognizedBlock>): List<DetectedBubble> {
-        // Blok hanya berisi tanda baca/angka tunggal (nomor halaman, SFX) bukan
-        // dialog dan membuat deteksi balon meleset.
+        // Deteksi orientasi dominan dari blok (jika日本語)
+        val dominantOrientation = detectDominantOrientation(blocks)
+        return detectWithOrientation(bitmap, blocks, dominantOrientation)
+    }
+
+    private fun detectDominantOrientation(blocks: List<RecognizedBlock>): TextOrientation {
+        val verticalCount = blocks.count { it.orientation == TextOrientation.VERTICAL }
+        val horizontalCount = blocks.count { it.orientation == TextOrientation.HORIZONTAL }
+        return when {
+            verticalCount > horizontalCount -> TextOrientation.VERTICAL
+            horizontalCount > verticalCount -> TextOrientation.HORIZONTAL
+            else -> TextOrientation.UNKNOWN
+        }
+    }
+
+    private fun detectWithOrientation(bitmap: Bitmap, blocks: List<RecognizedBlock>, orientation: TextOrientation): List<DetectedBubble> {
         val usable = blocks.filter {
             it.text.count { ch -> ch.isLetterOrDigit() } >= 2 &&
                 it.bounds.width() > 2 &&
                 it.bounds.height() > 2
         }
-        if (usable.isEmpty()) return emptyList()
+        if (usable.isEmpty()) {
+            val relaxed = blocks.filter {
+                it.text.isNotBlank() &&
+                    it.bounds.width() > 1 &&
+                    it.bounds.height() > 1
+            }
+            if (relaxed.isEmpty()) return emptyList()
+            return detectBubbles(bitmap, relaxed, orientation)
+        }
+        return detectBubbles(bitmap, usable, orientation)
+    }
 
+    private fun detectBubbles(bitmap: Bitmap, usable: List<RecognizedBlock>, orientation: TextOrientation): List<DetectedBubble> {
         val scaled = scaleForAnalysis(bitmap)
         val image = scaled.first
         val scale = scaled.second
         val pixels = IntArray(image.width * image.height)
         image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
 
-        val groups = groupBlocks(usable, pixels, image.width, image.height, scale)
+        val groups = groupBlocks(usable, pixels, image.width, image.height, scale, orientation)
         if (groups.isEmpty()) {
             if (scaled.third) image.recycle()
             return emptyList()
@@ -258,7 +285,8 @@ object BubbleDetector {
         pixels: IntArray,
         width: Int,
         height: Int,
-        scale: Float
+        scale: Float,
+        orientation: TextOrientation
     ): List<BlockGroup> {
         val parent = IntArray(blocks.size) { it }
 
@@ -279,7 +307,7 @@ object BubbleDetector {
 
         for (i in blocks.indices) {
             for (j in i + 1 until blocks.size) {
-                if (mergeable(blocks[i].bounds, blocks[j].bounds, pixels, width, height, scale)) {
+                if (mergeable(blocks[i].bounds, blocks[j].bounds, pixels, width, height, scale, orientation)) {
                     union(i, j)
                 }
             }
@@ -306,7 +334,8 @@ object BubbleDetector {
         pixels: IntArray,
         width: Int,
         height: Int,
-        scale: Float
+        scale: Float,
+        orientation: TextOrientation
     ): Boolean {
         val reference = max(min(a.height(), b.height()), 12)
         val horizontalGap = max(0, max(a.left, b.left) - min(a.right, b.right))

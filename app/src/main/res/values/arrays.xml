@@ -35,9 +35,10 @@
         <item>Arab</item>
     </string-array>
 
-    <!-- Urutan harus sama dengan enum TranslationBackend (ML_KIT, LLM). -->
+    <!-- Urutan harus sama dengan enum TranslationBackend (ML_KIT, LLM, MY_MEMORY). -->
     <string-array name="translation_providers">
         <item>ML Kit (offline)</item>
         <item>LLM (OpenAI-compatible)</item>
+        <item>MyMemory (gratis)</item>
     </string-array>
 </resources>

@@ -339,6 +339,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             TranslationBackend.ML_KIT -> getString(R.string.provider_hint_mlkit)
+            TranslationBackend.MY_MEMORY -> getString(R.string.provider_hint_mymemory)
         }
     }
 

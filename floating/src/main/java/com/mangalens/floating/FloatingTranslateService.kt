@@ -21,6 +21,7 @@ import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
 import com.mangalens.translation.LlmTranslationProvider
 import com.mangalens.translation.MlKitTranslationProvider
+import com.mangalens.translation.MyMemoryTranslationProvider
 import com.mangalens.translation.TranslationBackend
 import com.mangalens.translation.TranslationSettings
 import kotlinx.coroutines.CoroutineScope
@@ -281,6 +282,7 @@ class FloatingTranslateService : Service() {
             when (backend) {
                 TranslationBackend.ML_KIT -> MlKitTranslationProvider(source, target)
                 TranslationBackend.LLM -> LlmTranslationProvider(source, target)
+                TranslationBackend.MY_MEMORY -> MyMemoryTranslationProvider(source, target)
             }
         }
         translator = created

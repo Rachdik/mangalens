@@ -36,4 +36,9 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil:2.7.0")
+
+    // Dependency untuk pipeline terjemahan
+    implementation(project(":inpainting"))
+    implementation(project(":translation"))
+    implementation(project(":ocr"))
 }

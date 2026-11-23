@@ -10,7 +10,7 @@ class ImageStore(directory: File) {
 
     fun find(key: String): File? = fileFor(key).takeIf { it.isFile && it.length() > 0 }
 
-    fun write(key: String, bytes: ByteArray, mimeType: String?): File {
+    fun write(key: String, bytes: ByteArray, _mimeType: String?): File {
         val target = fileFor(key)
         target.parentFile?.mkdirs()
         target.writeBytes(bytes)

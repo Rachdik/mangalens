@@ -10,10 +10,16 @@ import android.graphics.Rect
  */
 enum class LanguageScript { AUTO, LATIN, JAPANESE, KOREAN, CHINESE }
 
+/**
+ * Arah teks yang terdeteksi dari orientasi blok OCR.
+ */
+enum class TextOrientation { HORIZONTAL, VERTICAL, UNKNOWN }
+
 data class RecognizedBlock(
     val text: String,
     val bounds: Rect,
-    val order: Int
+    val order: Int,
+    val orientation: TextOrientation = TextOrientation.UNKNOWN
 )
 
 /**
@@ -22,4 +28,10 @@ data class RecognizedBlock(
  */
 interface OcrEngine {
     suspend fun recognize(bitmap: Bitmap, script: LanguageScript): List<RecognizedBlock>
+
+    /**
+     * Deteksi orientasi teks dari bitmap.
+     * Dipakai untuk menentukan apakah teks vertikal (tategaki) atau horizontal.
+     */
+    fun detectOrientation(bitmap: Bitmap): TextOrientation = TextOrientation.UNKNOWN
 }
