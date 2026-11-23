@@ -25,6 +25,7 @@ dependencies {
     api(project(":core"))
     api(project(":ocr"))
     api(project(":translation"))
+    api(project(":inpainting"))
 
     implementation("androidx.core:core-ktx:1.13.1")
 }

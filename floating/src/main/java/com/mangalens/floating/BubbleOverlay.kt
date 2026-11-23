@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
@@ -15,12 +17,15 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
+import com.mangalens.inpainting.TranslatedBubble
 import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Bubble melayang + panel hasil terjemahan. Semua view dibuat programatik
- * agar tidak bergantung pada resource tema aplikasi pemanggil.
+ * Bubble melayang, teks terjemahan yang ditempel di atas balon asli, dan
+ * panel status kecil. Semua view dibuat programatik agar tidak bergantung
+ * pada resource tema aplikasi pemanggil.
  */
 class BubbleOverlay(
     private val context: Context,
@@ -44,6 +49,11 @@ class BubbleOverlay(
 
     private var bubbleAttached = false
     private var panelAttached = false
+
+    /** Teks terjemahan yang ditempel langsung di atas balon aslinya. */
+    private val translationViews = mutableListOf<View>()
+    private val handler = Handler(Looper.getMainLooper())
+    private val hidePanelTask = Runnable { hidePanel() }
 
     fun show() {
         if (bubbleAttached) return
@@ -82,6 +92,7 @@ class BubbleOverlay(
     }
 
     fun hide() {
+        clearTranslations()
         hidePanel()
         val view = bubble
         if (view != null && bubbleAttached) {
@@ -120,6 +131,8 @@ class BubbleOverlay(
      */
     fun setHidden(hidden: Boolean) {
         if (hidden) {
+            // Overlay sendiri ikut terekam, termasuk teks terjemahan.
+            clearTranslations()
             val view = bubble
             if (view != null && bubbleAttached) {
                 runCatching { windowManager.removeView(view) }
@@ -153,12 +166,94 @@ class BubbleOverlay(
         status?.setTextColor(if (isError) 0xFFB3261E.toInt() else 0xFF6B6B73.toInt())
     }
 
-    fun showResult(lines: List<TranslatedLine>) {
-        showPanel()
-        content?.text = lines.joinToString("\n\n") { line ->
-            val translated = line.target.ifBlank { "(tidak ada hasil)" }
-            "${line.source}\n→ $translated"
+    /**
+     * Menempelkan terjemahan tepat di posisi balon pada layar: latar view
+     * memakai warna balon asli sehingga teks sumber tertutup, lalu teks
+     * Indonesia ditulis di atasnya. [scale] adalah skala bitmap tangkapan
+     * layar terhadap layar sebenarnya.
+     *
+     * @return jumlah balon yang berhasil ditempel.
+     */
+    fun showTranslations(bubbles: List<TranslatedBubble>, scale: Float): Int {
+        clearTranslations()
+        if (bubbles.isEmpty() || scale <= 0f) return 0
+
+        var shown = 0
+        for (bubble in bubbles) {
+            if (shown >= MAX_TRANSLATIONS) break
+            val text = bubble.targetText.trim()
+            if (text.isEmpty()) continue
+
+            val left = (bubble.bounds.left / scale).toInt()
+            val top = (bubble.bounds.top / scale).toInt()
+            val width = (bubble.bounds.width() / scale).toInt()
+            val height = (bubble.bounds.height() / scale).toInt()
+            if (width < MIN_TRANSLATION_WIDTH || height < MIN_TRANSLATION_HEIGHT) continue
+
+            val view = TextView(context).apply {
+                this.text = text
+                setTextColor(bubble.textColor)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setPadding(dp(3), dp(2), dp(3), dp(2))
+                background = roundedRect(
+                    color = bubble.fillColor,
+                    radius = dp(6),
+                    stroke = Color.argb(28, 0, 0, 0)
+                )
+            }
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                view,
+                MIN_TEXT_SP,
+                MAX_TEXT_SP,
+                1,
+                TypedValue.COMPLEX_UNIT_SP
+            )
+
+            val params = WindowManager.LayoutParams(
+                width,
+                height,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    // Koordinat tangkapan layar dihitung dari pojok layar,
+                    // termasuk area status bar. Samakan asal koordinatnya.
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = left.coerceAtLeast(0)
+                y = top.coerceAtLeast(0)
+            }
+
+            val attached = runCatching {
+                windowManager.addView(view, params)
+                true
+            }.getOrDefault(false)
+            if (attached) {
+                translationViews += view
+                shown++
+            }
         }
+        return shown
+    }
+
+    fun clearTranslations() {
+        if (translationViews.isEmpty()) return
+        for (view in translationViews) {
+            runCatching { windowManager.removeView(view) }
+        }
+        translationViews.clear()
+    }
+
+    fun hasTranslations(): Boolean = translationViews.isNotEmpty()
+
+    /** Menampilkan status singkat lalu panel ditutup otomatis agar layar bersih. */
+    fun flashStatus(text: String, isError: Boolean = false, durationMs: Long = 2400L) {
+        handler.removeCallbacks(hidePanelTask)
+        setStatus(text, isError)
+        if (!isError) handler.postDelayed(hidePanelTask, durationMs)
     }
 
     private fun fitScrollToContent(top: Int, bottom: Int) {
@@ -339,4 +434,12 @@ class BubbleOverlay(
         }
 
     private fun dp(value: Int): Int = (value * density).toInt()
+
+    private companion object {
+        const val MAX_TRANSLATIONS = 40
+        const val MIN_TRANSLATION_WIDTH = 30
+        const val MIN_TRANSLATION_HEIGHT = 16
+        const val MIN_TEXT_SP = 6
+        const val MAX_TEXT_SP = 26
+    }
 }

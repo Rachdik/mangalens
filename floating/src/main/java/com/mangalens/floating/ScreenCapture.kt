@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -12,72 +13,139 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.WindowManager
+import kotlin.math.max
+
+/** Izin rekam layar tidak bisa dipakai lagi; pengguna harus menyetujui ulang. */
+class ProjectionUnavailableException(message: String) : IllegalStateException(message)
 
 /**
- * Mengambil satu frame layar lewat MediaProjection. Dipanggil dari thread IO.
+ * Satu frame hasil tangkapan layar. [scale] = lebar bitmap / lebar layar,
+ * dipakai untuk memetakan koordinat balon hasil OCR kembali ke koordinat layar.
+ */
+class CaptureFrame(
+    val bitmap: Bitmap,
+    val scale: Float
+)
+
+/**
+ * Sesi tangkapan layar yang bertahan lama.
+ *
+ * Penting: sejak Android 14 `createVirtualDisplay()` hanya boleh dipanggil
+ * SEKALI untuk satu [MediaProjection]. Versi lama membuat VirtualDisplay baru
+ * pada setiap ketukan bubble, sehingga ketukan kedua Melempar SecurityException
+ * dan bubble tampak mati. Di sini VirtualDisplay + ImageReader dibuat sekali
+ * lalu dipakai ulang untuk semua tangkapan.
  */
 class ScreenCapture(
     private val context: Context,
     private val projection: MediaProjection
 ) {
 
-    fun capture(): Bitmap {
-        val width = screenWidth()
-        val height = screenHeight()
-        val densityDpi = context.resources.displayMetrics.densityDpi
+    private var reader: ImageReader? = null
+    private var display: VirtualDisplay? = null
+    private var thread: HandlerThread? = null
+    private var screenWidth = 0
+    private var screenHeight = 0
 
-        val thread = HandlerThread("mangalens-capture").apply { start() }
-        val handler = Handler(thread.looper)
-        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        var display: android.hardware.display.VirtualDisplay? = null
+    @Synchronized
+    fun start() {
+        if (display != null) return
 
-        try {
-            display = projection.createVirtualDisplay(
+        val (width, height) = screenSize()
+        screenWidth = width
+        screenHeight = height
+
+        val captureThread = HandlerThread("mangalens-capture").apply { start() }
+        val handler = Handler(captureThread.looper)
+        val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
+
+        val virtualDisplay = try {
+            projection.createVirtualDisplay(
                 "mangalens-capture",
                 width,
                 height,
-                densityDpi,
+                context.resources.displayMetrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                reader.surface,
+                imageReader.surface,
                 null,
                 handler
             )
-
-            // Beri waktu compositor menggambar frame pertama.
-            Thread.sleep(FIRST_FRAME_DELAY_MS)
-
-            val image = acquireImage(reader) ?: error("Layar tidak menghasilkan gambar")
-            val raw = try {
-                imageToBitmap(image, width, height)
-            } finally {
-                image.close()
-            }
-
-            val longest = maxOf(raw.width, raw.height)
-            if (longest <= MAX_OCR_DIMENSION) return raw
-
-            val scale = MAX_OCR_DIMENSION.toFloat() / longest
-            val scaled = Bitmap.createScaledBitmap(
-                raw,
-                (raw.width * scale).toInt(),
-                (raw.height * scale).toInt(),
-                true
+        } catch (t: Throwable) {
+            runCatching { imageReader.close() }
+            runCatching { captureThread.quitSafely() }
+            throw ProjectionUnavailableException(
+                "Izin rekam layar tidak bisa dipakai lagi. Ketuk bubble untuk menyetujui ulang."
             )
-            if (scaled !== raw) raw.recycle()
-            return scaled
+        }
+
+        reader = imageReader
+        display = virtualDisplay
+        thread = captureThread
+
+        // Beri waktu compositor menggambar frame pertama.
+        Thread.sleep(FIRST_FRAME_DELAY_MS)
+    }
+
+    /** @throws ProjectionUnavailableException bila izin rekam sudah dicabut. */
+    fun capture(): CaptureFrame {
+        val imageReader = synchronized(this) { reader }
+            ?: throw ProjectionUnavailableException(
+                "Izin rekam layar tidak aktif. Ketuk bubble untuk menyetujui ulang."
+            )
+
+        // Buang frame lama supaya overlay MangaLens yang baru disembunyikan
+        // tidak ikut terekam.
+        drain(imageReader)
+        Thread.sleep(FRESH_FRAME_DELAY_MS)
+
+        val image = acquireImage(imageReader)
+            ?: throw ProjectionUnavailableException(
+                "Layar tidak menghasilkan gambar. Coba ketuk bubble sekali lagi."
+            )
+
+        val raw = try {
+            imageToBitmap(image, screenWidth, screenHeight)
         } finally {
-            runCatching { display?.release() }
-            runCatching { reader.close() }
-            runCatching { thread.quitSafely() }
+            image.close()
+        }
+
+        val longest = max(raw.width, raw.height)
+        if (longest <= MAX_OCR_DIMENSION) return CaptureFrame(raw, raw.width.toFloat() / screenWidth)
+
+        val scale = MAX_OCR_DIMENSION.toFloat() / longest
+        val scaled = Bitmap.createScaledBitmap(
+            raw,
+            (raw.width * scale).toInt().coerceAtLeast(1),
+            (raw.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        if (scaled !== raw) raw.recycle()
+        return CaptureFrame(scaled, scaled.width.toFloat() / screenWidth)
+    }
+
+    @Synchronized
+    fun close() {
+        runCatching { display?.release() }
+        display = null
+        runCatching { reader?.close() }
+        reader = null
+        runCatching { thread?.quitSafely() }
+        thread = null
+    }
+
+    private fun drain(imageReader: ImageReader) {
+        while (true) {
+            val image = imageReader.acquireLatestImage() ?: break
+            runCatching { image.close() }
         }
     }
 
-    private fun acquireImage(reader: ImageReader): Image? {
+    private fun acquireImage(imageReader: ImageReader): Image? {
         val deadline = SystemClock.uptimeMillis() + CAPTURE_TIMEOUT_MS
         while (SystemClock.uptimeMillis() < deadline) {
-            val image = reader.acquireLatestImage()
+            val image = imageReader.acquireLatestImage()
             if (image != null) return image
-            Thread.sleep(40)
+            Thread.sleep(30)
         }
         return null
     }
@@ -103,10 +171,6 @@ class ScreenCapture(
         return cropped
     }
 
-    private fun screenWidth(): Int = screenSize().first
-
-    private fun screenHeight(): Int = screenSize().second
-
     private fun screenSize(): Pair<Int, Int> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = runCatching {
@@ -121,7 +185,8 @@ class ScreenCapture(
     }
 
     private companion object {
-        const val FIRST_FRAME_DELAY_MS = 250L
+        const val FIRST_FRAME_DELAY_MS = 200L
+        const val FRESH_FRAME_DELAY_MS = 60L
         const val CAPTURE_TIMEOUT_MS = 4_000L
         const val MAX_OCR_DIMENSION = 1600
     }

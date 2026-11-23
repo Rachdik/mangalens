@@ -342,9 +342,15 @@ Risiko: `[RISIKO]` OEM (Xiaomi/Oppo/Samsung) mematikan foreground service; `[RIS
 `specialUse` berbeda per OEM. Tidak ada jaminan lintas semua perangkat.
 
 **Catatan implementasi aktual:** `foregroundServiceType="mediaProjection"` (bukan `specialUse`),
-`START_NOT_STICKY` karena MediaProjection tidak bisa dipulihkan setelah service mati. Hasil
-terjemahan tampil sebagai kartu panel (teks asli + terjemahan), **belum** ditempel pada posisi bubble
-asli — itu menunggu inpainting/overlay per blok (Tahap 6).
+`START_STICKY`, `stopWithTask="false"`. Sejak perbaikan Tahap 5, hasil terjemahan **ditempel langsung
+di atas balon asli** (bukan kartu daftar teks): latar view memakai warna balon hasil deteksi sehingga
+teks sumber tertutup, lalu teks Indonesia ditulis di dalamnya dengan auto-shrink font.
+
+Sesi tangkapan layar juga diubah menjadi satu `VirtualDisplay` + `ImageReader` permanen. Ini wajib
+sejak Android 14: `createVirtualDisplay()` yang dipanggil berulang pada satu `MediaProjection` akan
+melempar `SecurityException`, sehingga versi lama hanya bisa menangkap sekali (dan tampak "mati").
+Izin yang dicabut sistem tidak lagi mematikan service — bubble tetap ada dan ketukan berikutnya
+meminta izin baru lewat `MainActivity` (`EXTRA_REQUEST_PROJECTION`).
 
 ---
 
@@ -430,8 +436,8 @@ tategaki, patch-based inpainting, OEM background service).
 | 3 Ekstraksi gambar | diimplementasikan; **belum diuji di device** | skrip `mangalens_scan.js`, `ImageScanSession`, `NativeImageFetcher`, `ImageStore`, panel “Gambar N”. Build lulus; belum ada bukti pada situs nyata |
 | 4 OCR (ML Kit) | diimplementasikan; **belum diuji di device** | `ocr/MlKitOcrEngine.kt` memakai `text-recognition` + varian Jepang/Korea/China `16.0.1` (model bundled). Saat ini dipakai oleh jalur floating layar, belum oleh gambar reader |
 | 5 Terjemahan | diimplementasikan (on-device); **belum diuji di device** | `translation/MlKitTranslationProvider.kt` (`com.google.mlkit:translate:17.0.3`); model id+ja/ko/zh/en diunduh sekali saat pertama dipakai (butuh internet sekali) |
-| 6 Inpainting | belum | — |
-| 7 Floating bubble + terjemahan layar | diimplementasikan; **belum diuji di device** | `floating/FloatingTranslateService.kt`, `BubbleOverlay.kt`, `ScreenCapture.kt`, `ScreenTranslator.kt`. Ketuk bubble → MediaProjection + OCR + terjemah → panel hasil; tekan lama = mati. Bubble disembunyikan ~250 ms saat menangkap layar agar tidak ikut ter-OCR |
+| 6 Inpainting | sebagian: deteksi balon + tempel teks di posisi balon | `inpainting/BubbleDetector.kt` (clustering blok OCR, warna latar cincin, flood fill batas balon) dan `inpainting/MangaPageTranslator.kt`. Isi ulang **piksel** balon (diffusion/PatchMatch) belum ada; penghapusan teks dilakukan oleh latar view overlay berwarna balon |
+| 7 Floating bubble + terjemahan layar | diimplementasikan; **belum diuji di device** | `floating/FloatingTranslateService.kt`, `BubbleOverlay.kt`, `ScreenCapture.kt`, `ScreenTranslator.kt`. Ketuk bubble → MediaProjection + OCR + deteksi balon + terjemah → teks ditempel di posisi balon; ketuk lagi = hapus; tekan lama = mati. Satu sesi VirtualDisplay permanen (aturan Android 14), provider terjemahan di-cache, bubble tidak mati saat izin rekam dicabut (minta izin ulang) |
 | 8–10 | belum | — |
 
 Modul yang benar-benar ada di `settings.gradle.kts`: `app, core, ui, storage, reader, floating, ocr,
@@ -466,3 +472,38 @@ layar utama.
 
 APK: `dist/MangaLens-tahap4-arm64-debug.apk` (arm64-v8a, ~36 MB). Split ABI dipakai karena native lib
 ML Kit ±16 MB per ABI; tanpa split APK menjadi 112 MB.
+
+---
+
+## 16. Perbaikan masukan pengguna (APK Tahap 5)
+
+Keluhan: aplikasi tidak mendeteksi balon pada manga; yang diinginkan adalah teks di dalam balon pada
+gambar diganti langsung (bukan daftar hasil di floating app); dan floating app sering mati mendadak
+saat pindah gambar/halaman.
+
+Perubahan:
+
+1. **Deteksi balon.** `inpainting/BubbleDetector.kt` mengelompokkan blok OCR yang berdekatan menjadi
+   satu balon (satu balon sering terpecah menjadi beberapa blok, terutama teks vertikal Jepang),
+   menghitung warna latar dari cincin di sekitar teks, lalu mencari batas dalam balon dengan flood
+   fill yang otomatis berhenti di garis tepi balon. Warna teks dipilih dari kontras latar.
+2. **Tempel terjemahan di posisi balon.** `BubbleOverlay.showTranslations()` membuat view overlay
+   seukuran balon, berlatar warna balon asli (sehingga teks sumber tertutup) dan berisi teks Indonesia
+   dengan font auto-shrink. Panel daftar teks tidak lagi dipakai untuk hasil; panel hanya status.
+3. **Service tidak lagi mati saat pindah halaman.** Penyebab nyata: (a) callback
+   `MediaProjection.onStop` memanggil `stopSelf()`; (b) `createVirtualDisplay()` dipanggil ulang pada
+   setiap ketukan, yang sejak Android 14 melempar `SecurityException`; (c) provider terjemahan dibuat
+   lalu ditutup setiap ketukan sehingga model dimuat ulang terus. Perbaikan: satu
+   `VirtualDisplay`/`ImageReader` permanen untuk semua tangkapan, provider di-cache, `START_STICKY`,
+   `stopWithTask="false"`, dan izin yang dicabut hanya memunculkan status + permintaan izin ulang
+   lewat `MainActivity` (`FloatingTranslate.requestProjection`).
+4. **Ketuk kedua menghapus tempelan**, tekan lama tetap mematikan bubble.
+
+Batasan yang masih ada: tempelan mengikuti frame saat diterjemahkan, jadi setelah halaman digulir
+pengguna perlu mengetuk bubble lagi (belum ada auto-refresh); inpainting piksel penuh
+(diffusion/PatchMatch) belum diimplementasikan — teks asli ditutup oleh warna balon; batas balon
+bergantung pada akurasi OCR (balon dengan screentone/gradien bisa memakai kotak cadangan yang lebih
+longgar); seluruh perilaku ini belum diuji di perangkat.
+
+APK: `dist/MangaLens-tahap5-arm64-debug.apk` (36.604.274 byte, SHA-256
+`b9f65b5bab6f278bc567e8c526b67bbb4d24569246abdf465d94aba6ea441604`).

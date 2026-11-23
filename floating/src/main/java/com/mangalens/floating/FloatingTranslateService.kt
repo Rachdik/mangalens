@@ -16,8 +16,10 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
+import com.mangalens.inpainting.MangaPageTranslator
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
+import com.mangalens.translation.MlKitTranslationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,18 +30,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Foreground service yang menampilkan bubble. Setiap ketukan bubble:
- * tangkap layar -> OCR -> terjemahkan -> tampilkan hasil di panel overlay.
+ * Foreground service bubble terjemahan layar.
+ *
+ * Alur: ketuk bubble -> tangkap layar -> OCR -> deteksi balon -> terjemahkan ->
+ * tempel teks Indonesia tepat di atas balon aslinya.
+ *
+ * Service dirancang tetap hidup walaupun izin rekam layar dicabut sistem
+ * (mis. saat berpindah halaman atau aplikasi): bubble tetap ada dan ketukan
+ * berikutnya meminta izin ulang, bukan mematikan service.
  */
 class FloatingTranslateService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var settings: FloatingSettings
     private lateinit var overlay: BubbleOverlay
-    private val translator = ScreenTranslator(MlKitOcrEngine())
 
     private var projection: MediaProjection? = null
     private var capture: ScreenCapture? = null
+    private var translator: MangaPageTranslator? = null
+    private var translatorTag: String? = null
     private var job: Job? = null
 
     override fun onCreate() {
@@ -69,19 +78,34 @@ class FloatingTranslateService : Service() {
             settings.languageTag = tag
         }
 
-        if (projection == null) {
-            val resultCode = intent?.getIntExtra(FloatingTranslate.EXTRA_RESULT_CODE, 0) ?: 0
-            val data = intent?.let {
-                IntentCompat.getParcelableExtra(it, FloatingTranslate.EXTRA_RESULT_DATA, Intent::class.java)
-            }
-            if (resultCode != Activity.RESULT_OK || data == null || !bindProjection(resultCode, data)) {
-                stopSelf()
-                return START_NOT_STICKY
-            }
+        val resultCode = intent?.getIntExtra(FloatingTranslate.EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
+            ?: Activity.RESULT_CANCELED
+        val data = intent?.let {
+            IntentCompat.getParcelableExtra(it, FloatingTranslate.EXTRA_RESULT_DATA, Intent::class.java)
         }
 
-        overlay.show()
-        return START_NOT_STICKY
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            if (!bindProjection(resultCode, data)) {
+                overlay.show()
+                overlay.setStatus(
+                    "Izin rekam layar gagal dipakai. Ketuk bubble untuk mencoba lagi.",
+                    true
+                )
+            }
+        } else if (capture == null) {
+            // Service dijalankan ulang tanpa izin (mis. setelah proses dibunuh).
+            overlay.show()
+            overlay.setStatus(
+                "Izin rekam layar belum ada. Ketuk bubble untuk menyambung ulang.",
+                true
+            )
+        } else {
+            overlay.show()
+        }
+
+        // START_STICKY: bila sistem membunuh service, bubble kembali muncul
+        // dengan status untuk menyambung ulang, bukan hilang tanpa jejak.
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -90,18 +114,33 @@ class FloatingTranslateService : Service() {
         job?.cancel()
         scope.cancel()
         overlay.hide()
-        runCatching { projection?.stop() }
-        projection = null
+        capture?.close()
         capture = null
+        // Lepas referensi lebih dulu agar callback onStop tidak menambah view
+        // baru setelah service dihancurkan.
+        val current = projection
+        projection = null
+        runCatching { current?.stop() }
+        translator?.close()
+        translator = null
         FloatingTranslate.isRunning = false
         super.onDestroy()
     }
 
     private fun translateScreen() {
         if (job?.isActive == true) return
+
+        // Ketukan kedua menghapus tempelan terjemahan (agar bisa lihat aslinya).
+        if (overlay.hasTranslations()) {
+            overlay.clearTranslations()
+            overlay.flashStatus("Terjemahan dihapus. Ketuk bubble untuk menerjemahkan lagi.")
+            return
+        }
+
         val screenCapture = capture
         if (screenCapture == null) {
-            overlay.setStatus("Izin rekam layar tidak aktif. Nyalakan ulang bubble.", true)
+            overlay.setStatus("Izin rekam layar tidak aktif. Menyiapkan izin ulang…")
+            FloatingTranslate.requestProjection(this)
             return
         }
 
@@ -111,31 +150,40 @@ class FloatingTranslateService : Service() {
                 // Overlay MangaLens ikut terekam; sembunyikan dulu.
                 overlay.setHidden(true)
                 delay(OVERLAY_HIDE_DELAY_MS)
-                val bitmap: Bitmap = try {
+                val frame = try {
                     withContext(Dispatchers.IO) { screenCapture.capture() }
                 } finally {
                     overlay.setHidden(false)
                 }
-                overlay.setStatus("Mengenali teks…")
-                val lines = withContext(Dispatchers.Default) {
-                    translator.translate(bitmap, settings.script, settings.languageTag)
-                }
-                bitmap.recycle()
 
-                if (lines.isEmpty()) {
-                    overlay.setStatus("Tidak ada teks yang terbaca di layar.")
-                } else {
-                    overlay.setStatus("${lines.size} blok teks diterjemahkan")
-                    overlay.showResult(lines)
+                overlay.setStatus("Mendeteksi balon teks…")
+                val bubbles = withContext(Dispatchers.Default) {
+                    translator().translate(frame.bitmap, settings.script)
                 }
+                frame.bitmap.recycle()
+
+                if (bubbles.isEmpty()) {
+                    overlay.setStatus(
+                        "Tidak ada balon teks yang terdeteksi. Perbesar gambar atau ganti bahasa sumber.",
+                        true
+                    )
+                } else {
+                    val shown = overlay.showTranslations(bubbles, frame.scale)
+                    if (shown == 0) {
+                        overlay.setStatus("Balon terdeteksi tetapi tidak ada teks yang bisa ditempel.", true)
+                    } else {
+                        overlay.flashStatus(
+                            "$shown balon diterjemahkan langsung di gambar. Ketuk bubble untuk menghapus."
+                        )
+                    }
+                }
+            } catch (e: ProjectionUnavailableException) {
+                capture = null
+                overlay.setStatus(e.message ?: "Izin rekam layar berakhir.", true)
             } catch (t: Throwable) {
                 overlay.setStatus(t.message ?: "Gagal menerjemahkan layar.", true)
             }
         }
-    }
-
-    private companion object {
-        const val OVERLAY_HIDE_DELAY_MS = 250L
     }
 
     private fun bindProjection(resultCode: Int, data: Intent): Boolean {
@@ -146,15 +194,53 @@ class FloatingTranslateService : Service() {
         created.registerCallback(
             object : MediaProjection.Callback() {
                 override fun onStop() {
-                    stopSelf()
+                    // Abaikan sesi lama yang sengaja diganti sesi baru.
+                    if (projection !== created) return
+                    capture?.close()
+                    capture = null
+                    projection = null
+                    overlay.clearTranslations()
+                    overlay.setStatus(
+                        "Izin rekam layar dihentikan sistem. Ketuk bubble lalu setujui izin untuk melanjutkan.",
+                        true
+                    )
                 }
             },
             Handler(Looper.getMainLooper())
         )
 
+        // Pasang referensi baru sebelum sesi lama dihentikan, supaya callback
+        // onStop milik sesi lama tidak menghapus sesi yang baru.
+        capture?.close()
+        capture = null
+        val previous = projection
         projection = created
-        capture = ScreenCapture(this, created)
+        runCatching { previous?.stop() }
+
+        val session = ScreenCapture(this, created)
+        if (runCatching { session.start() }.isFailure) {
+            session.close()
+            if (projection === created) projection = null
+            runCatching { created.stop() }
+            return false
+        }
+
+        capture = session
+        overlay.clearTranslations()
         return true
+    }
+
+    /** Satu provider per bahasa sumber; model tidak dimuat ulang setiap ketukan. */
+    private fun translator(): MangaPageTranslator {
+        val tag = settings.languageTag
+        val existing = translator
+        if (existing != null && translatorTag == tag) return existing
+
+        existing?.close()
+        val created = MangaPageTranslator(MlKitOcrEngine(), MlKitTranslationProvider(tag))
+        translator = created
+        translatorTag = tag
+        return created
     }
 
     private fun startForegroundNow() {
@@ -180,7 +266,7 @@ class FloatingTranslateService : Service() {
         val notification = NotificationCompat.Builder(this, FloatingTranslate.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bubble)
             .setContentTitle("MangaLens aktif")
-            .setContentText("Ketuk bubble untuk menerjemahkan layar")
+            .setContentText("Ketuk bubble untuk menempelkan terjemahan di balon")
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -192,5 +278,9 @@ class FloatingTranslateService : Service() {
             notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         )
+    }
+
+    private companion object {
+        const val OVERLAY_HIDE_DELAY_MS = 250L
     }
 }

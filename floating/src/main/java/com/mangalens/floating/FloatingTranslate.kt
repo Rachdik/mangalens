@@ -18,6 +18,9 @@ object FloatingTranslate {
     const val EXTRA_SCRIPT = "script"
     const val EXTRA_LANGUAGE_TAG = "language_tag"
 
+    /** Dibaca MainActivity untuk langsung meminta izin rekam layar lagi. */
+    const val EXTRA_REQUEST_PROJECTION = "com.mangalens.floating.EXTRA_REQUEST_PROJECTION"
+
     internal const val CHANNEL_ID = "mangalens_screen_translate"
     internal const val NOTIFICATION_ID = 1201
 
@@ -48,5 +51,16 @@ object FloatingTranslate {
         context.startService(
             Intent(context, FloatingTranslateService::class.java).apply { action = ACTION_STOP }
         )
+    }
+
+    /**
+     * Membuka layar utama dan meminta izin rekam layar baru. Dipakai saat izin
+     * lama dicabut sistem sehingga bubble tidak perlu dimatikan.
+     */
+    fun requestProjection(context: Context) {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent.putExtra(EXTRA_REQUEST_PROJECTION, true)
+        runCatching { context.startActivity(intent) }
     }
 }

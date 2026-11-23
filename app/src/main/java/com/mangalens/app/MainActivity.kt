@@ -117,13 +117,35 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        handleIncomingIntent(intent)
+        if (!handleProjectionRequest(intent)) {
+            handleIncomingIntent(intent)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIncomingIntent(intent)
+        if (!handleProjectionRequest(intent)) {
+            handleIncomingIntent(intent)
+        }
+    }
+
+    /**
+     * Bubble meminta izin rekam layar baru setelah izin lama dicabut sistem
+     * (mis. saat berpindah halaman). Service tetap hidup, izin saja yang baru.
+     */
+    private fun handleProjectionRequest(intent: Intent?): Boolean {
+        if (intent?.getBooleanExtra(FloatingTranslate.EXTRA_REQUEST_PROJECTION, false) != true) {
+            return false
+        }
+        intent.removeExtra(FloatingTranslate.EXTRA_REQUEST_PROJECTION)
+
+        if (!FloatingTranslate.canDrawOverlays(this)) {
+            toast(getString(R.string.overlay_permission_needed))
+            return true
+        }
+        requestProjection()
+        return true
     }
 
     override fun onResume() {

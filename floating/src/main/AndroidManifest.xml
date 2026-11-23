@@ -7,10 +7,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
+        <!-- stopWithTask=false: bubble tetap hidup saat pengguna pindah tugas. -->
         <service
             android:name=".FloatingTranslateService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection"
+            android:stopWithTask="false" />
     </application>
 
 </manifest>
