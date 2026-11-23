@@ -36,7 +36,7 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 
 Semua build pengujian tersedia di halaman release:
 
-**https://github.com/Rachdik/mangalens/releases**
+**https://github.com/Rachdik/mangalens/releases** pilih MangaLens-tahap13-arm64-debug.apk
 
 ### Manual upload APK
 
