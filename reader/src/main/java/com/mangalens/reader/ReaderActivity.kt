@@ -39,6 +39,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var scanSession: ImageScanSession
     private var imageSheet: ImageListSheet? = null
     private var translatePipeline: ReadTranslatePipeline? = null
+    private var translationManager: ImageTranslationManager? = null
 
     private val scanScript: String by lazy {
         runCatching {
@@ -102,42 +103,97 @@ class ReaderActivity : AppCompatActivity() {
             }
         }
 
+        // Setup terjemahan otomatis
         if (Dependencies.isReady()) {
-            translatePipeline = ReadTranslatePipeline(this)
-            translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
-            translatePipeline?.onTranslationReady = { bubbles ->
-                bubbles.forEach { bubble ->
-                    // Tempel teks terjemahan di WebView
-                    val overlay = buildString {
-                        append("<div style='position:absolute;left:")
-                        append(bubble.bounds.left)
-                        append("px;top:")
-                        append(bubble.bounds.top)
-                        append("px;width:")
-                        append(bubble.bounds.width())
-                        append("px;height:")
-                        append(bubble.bounds.height())
-                        append("px;background-color:rgba(")
-                        append(Color.red(bubble.fillColor))
-                        append(",")
-                        append(Color.green(bubble.fillColor))
-                        append(",")
-                        append(Color.blue(bubble.fillColor))
-                        append(",0.7);color:#")
-                        append(String.format("%06X", 0xFFFFFF and bubble.textColor))
-                        append(";padding:2px;font-size:14px;z-index:1000;'>")
-                        append(bubble.targetText)
-                        append("</div>")
-                    }
-                    runCatching {
+            setupAutoTranslation()
+        }
+    }
+
+    private fun setupAutoTranslation() {
+        translatePipeline = ReadTranslatePipeline(this)
+        translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
+
+        // Setup callback terjemahan
+        translatePipeline?.onTranslationReady = { bubbles ->
+            runCatching {
+                if (bubbles.isEmpty()) {
+                    // Bersihkan overlay jika tidak ada balon yang diterjemahkan
+                    binding.webView.evaluateJavascript(
+                        """
+                        var overlay = document.getElementById('mangalens-overlay');
+                        if (overlay) overlay.remove();
+                        """,
+                        null
+                    )
+                } else {
+                    // Buat atau dapatkan container overlay
+                    binding.webView.evaluateJavascript(
+                        """
+                        (function() {
+                            var container = document.getElementById('mangalens-overlay');
+                            if (!container) {
+                                container = document.createElement('div');
+                                container.id = 'mangalens-overlay';
+                                container.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+                                document.body.appendChild(container);
+                            }
+                            // Hapus overlay lama
+                            var oldDivs = container.querySelectorAll('.mangalens-translation');
+                            oldDivs.forEach(function(d) { d.remove(); });
+                        })();
+                        """,
+                        null
+                    )
+
+                    // Tempel teks terjemahan untuk setiap bubble
+                    for (bubble in bubbles) {
+                        val overlayHtml = buildString {
+                            append("<div class='mangalens-translation' style='position:absolute;left:")
+                            append(bubble.bounds.left)
+                            append("px;top:")
+                            append(bubble.bounds.top)
+                            append("px;width:")
+                            append(bubble.bounds.width())
+                            append("px;height:")
+                            append(bubble.bounds.height())
+                            append("px;background-color:rgba(")
+                            append(Color.red(bubble.fillColor))
+                            append(",")
+                            append(Color.green(bubble.fillColor))
+                            append(",")
+                            append(Color.blue(bubble.fillColor))
+                            append(",0.7);color:#")
+                            append(String.format("%06X", 0xFFFFFF and bubble.textColor))
+                            append(";padding:2px;font-size:14px;z-index:1000;pointer-events:none;border-radius:4px;'>")
+                            append(bubble.targetText)
+                            append("</div>")
+                        }
                         binding.webView.evaluateJavascript(
-                            "document.getElementById('mangalens-overlay')",
+                            """
+                            (function() {
+                                var container = document.getElementById('mangalens-overlay');
+                                if (!container) return;
+                                var div = document.createElement('div');
+                                div.className = 'mangalens-translation';
+                                div.style.cssText = '${overlayHtml.replace("'", "\\'")}';
+                                container.appendChild(div);
+                            })();
+                            """,
                             null
                         )
                     }
                 }
             }
         }
+
+        // Mulai monitor otomatis untuk gambar yang siap
+        translationManager = ImageTranslationManager(
+            context = this,
+            scanSession = scanSession,
+            pipeline = translatePipeline!!,
+            scope = lifecycleScope
+        )
+        translationManager?.start()
     }
 
     private fun configureWebView() {
@@ -258,6 +314,8 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        translationManager?.stop()
+        translationManager = null
         translatePipeline?.close()
         translatePipeline = null
         if (isFinishing) {
