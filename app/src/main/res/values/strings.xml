@@ -15,6 +15,11 @@
     <string name="screen_translate_title">Terjemahan layar (floating)</string>
     <string name="screen_translate_subtitle">Bubble bekerja di aplikasi mana pun (MangaLens, browser, aplikasi baca lain). Ketuk bubble: seluruh layar dibaca, teks di dalam balon manga diganti terjemahan Indonesia langsung di posisinya. Ketuk lagi untuk menghapus; tekan lama untuk mematikan. Bahasa sumber dideteksi otomatis.</string>
     <string name="source_language">Bahasa sumber</string>
+    <string name="provider_label">Provider terjemahan</string>
+    <string name="provider_hint_mlkit">ML Kit on-device: offline, tanpa kunci API.</string>
+    <string name="provider_hint_llm">LLM aktif · model %1$s</string>
+    <string name="provider_hint_llm_missing">Kunci API belum ada. Isi LLM_API_KEY di file .env lalu build ulang.</string>
+    <string name="llm_missing_key">Provider LLM dipilih, tetapi kunci API belum diisi. Isi LLM_API_KEY di file .env lalu build ulang.</string>
     <string name="start_bubble">Aktifkan Bubble</string>
     <string name="stop_bubble">Matikan Bubble</string>
     <string name="overlay_permission_needed">Izinkan "Tampil di atas aplikasi lain" agar bubble bisa muncul.</string>

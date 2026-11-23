@@ -19,7 +19,10 @@ import com.mangalens.inpainting.MangaPageTranslator
 import com.mangalens.inpainting.PageTranslation
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
+import com.mangalens.translation.LlmTranslationProvider
 import com.mangalens.translation.MlKitTranslationProvider
+import com.mangalens.translation.TranslationBackend
+import com.mangalens.translation.TranslationSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,11 +53,14 @@ class FloatingTranslateService : Service() {
     private var projection: MediaProjection? = null
     private var capture: ScreenCapture? = null
     private var translator: MangaPageTranslator? = null
+    private var translatorBackend: TranslationBackend? = null
     private var job: Job? = null
+    private lateinit var translationSettings: TranslationSettings
 
     override fun onCreate() {
         super.onCreate()
         settings = FloatingSettings(this)
+        translationSettings = TranslationSettings(this)
         overlay = BubbleOverlay(
             context = this,
             onTranslate = { translateScreen() },
@@ -262,11 +268,24 @@ class FloatingTranslateService : Service() {
         return true
     }
 
-    /** Satu pipeline untuk semua ketukan; provider internal di-cache per bahasa. */
+    /**
+     * Satu pipeline untuk semua ketukan; provider internal di-cache per bahasa.
+     * Bila pengguna mengganti provider di layar utama, pipeline lama ditutup
+     * agar pilihan baru langsung dipakai tanpa mematikan bubble.
+     */
     private fun translator(): MangaPageTranslator {
-        translator?.let { return it }
-        val created = MangaPageTranslator(MlKitOcrEngine()) { tag -> MlKitTranslationProvider(tag) }
+        val backend = translationSettings.backend
+        translator?.let { if (translatorBackend == backend) return it }
+
+        translator?.close()
+        val created = MangaPageTranslator(MlKitOcrEngine()) { tag ->
+            when (backend) {
+                TranslationBackend.ML_KIT -> MlKitTranslationProvider(tag)
+                TranslationBackend.LLM -> LlmTranslationProvider(tag)
+            }
+        }
         translator = created
+        translatorBackend = backend
         return created
     }
 

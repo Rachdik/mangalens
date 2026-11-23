@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.AdapterView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -25,12 +26,15 @@ import com.mangalens.core.model.HistoryEntry
 import com.mangalens.core.util.UrlNormalizer
 import com.mangalens.floating.FloatingTranslate
 import com.mangalens.reader.ReaderActivity
+import com.mangalens.translation.TranslationBackend
+import com.mangalens.translation.TranslationSettings
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var historyAdapter: HistoryAdapter
+    private lateinit var translationSettings: TranslationSettings
 
     private val viewModel: MainViewModel by viewModels { MainViewModel.Factory }
 
@@ -80,6 +84,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        translationSettings = TranslationSettings(this)
+        setupProviderSpinner()
 
         historyAdapter = HistoryAdapter { entry -> openReader(entry.url) }
         binding.historyList.apply {
@@ -224,6 +230,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (translationSettings.backend == TranslationBackend.LLM &&
+            !TranslationSettings.llmConfigured
+        ) {
+            // Bubble tetap boleh dinyalakan; pesan ini menjelaskan kenapa
+            // terjemahan akan gagal sampai kunci API diisi.
+            toast(getString(R.string.llm_missing_key)) 
+        }
+
         if (!FloatingTranslate.canDrawOverlays(this)) {
             toast(getString(R.string.overlay_permission_needed))
             overlayPermissionLauncher.launch(
@@ -256,6 +270,39 @@ class MainActivity : AppCompatActivity() {
     private fun launchProjectionConsent() {
         val manager = getSystemService(MediaProjectionManager::class.java)
         projectionLauncher.launch(manager.createScreenCaptureIntent())
+    }
+
+    private fun setupProviderSpinner() {
+        binding.providerSpinner.setSelection(translationSettings.backend.ordinal)
+        binding.providerSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    translationSettings.backend = TranslationBackend.values()
+                        .getOrElse(position) { TranslationBackend.ML_KIT }
+                    updateProviderHint()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        updateProviderHint()
+    }
+
+    private fun updateProviderHint() {
+        binding.providerHint.text = when (translationSettings.backend) {
+            TranslationBackend.LLM ->
+                if (TranslationSettings.llmConfigured) {
+                    getString(R.string.provider_hint_llm, TranslationSettings.llmModel)
+                } else {
+                    getString(R.string.provider_hint_llm_missing)
+                }
+
+            TranslationBackend.ML_KIT -> getString(R.string.provider_hint_mlkit)
+        }
     }
 
     private fun updateFloatingButton() {

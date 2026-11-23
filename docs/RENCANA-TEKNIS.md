@@ -682,3 +682,37 @@ Layar utama dirombak tanpa mengubah logika:
 
 Build lulus (`BUILD SUCCESSFUL`). Tampilan belum diverifikasi lewat screenshot karena perangkat
 terputus dari adb saat pengecekan.
+
+## 22. Provider terjemahan LLM (opsional, kunci dari .env)
+
+ML Kit tetap bawaan, tetapi hasilnya literal. Ditambahkan provider kedua berbasis LLM yang
+memakai API kompatibel OpenAI (`POST {base}/chat/completions`).
+
+**Konfigurasi build:**
+- `translation/build.gradle.kts` membaca `.env` di root proyek saat konfigurasi dan menulis
+  `LLM_API_KEY`, `LLM_BASE_URL` (default `https://api.z.ai/api/paas/v4`), dan `LLM_MODEL`
+  (default `glm-4-flash`) ke `BuildConfig` modul `translation`.
+- Nama alternatif `ZAI_API_KEY`/`ZAI_API_BASE` juga diterima. `.env` masuk `.gitignore`;
+  `.env.example` disediakan. Tanpa `.env`, build tetap jalan dengan kunci kosong.
+- Sudah diverifikasi: mengisi `.env` membuat `BuildConfig.LLM_API_KEY` terisi, menghapusnya
+  mengembalikan nilai kosong.
+
+**Kode:**
+- `LlmTranslationProvider`: mengirim semua teks satu layar dalam satu permintaan (system prompt
+  meminta terjemahan luwes dan balasan array JSON), mem-parse JSON dengan cadangan baris bernomor,
+  lalu merapikan ragam bahasa lewat `IndonesianStyle`. Timeout 20s/60s, error HTTP dilaporkan
+  sebagai `TranslateResult.Failure` berisi pesan Indonesia.
+- `TranslationSettings` + enum `TranslationBackend` (`ML_KIT`, `LLM`) disimpan di
+  SharedPreferences sehingga layar utama dan service bubble memakai pilihan yang sama.
+- `FloatingTranslateService` membuat provider sesuai pilihan dan menutup pipeline lama saat
+  provider diganti, tanpa mematikan bubble.
+- `MangaPageTranslator` memakai `displayName` provider pada pesan "belum siap".
+
+**UI:** baris "Provider terjemahan" (spinner) di kartu Floating plus teks bantuan yang berubah
+sesuai pilihan; bila LLM dipilih tanpa kunci, aplikasi menampilkan pesan bahwa `LLM_API_KEY`
+belum diisi.
+
+**Batasan/keamanan:** kunci tertanam di APK (BuildConfig), jadi APK hasil build dengan kunci asli
+tidak boleh dibagikan; APK di halaman release dibangun tanpa `.env`. Kualitas hasil LLM belum
+diuji di perangkat karena tidak ada kunci API pada lingkungan agen; yang terverifikasi baru
+kompilasi, pembacaan `.env`, dan build APK.

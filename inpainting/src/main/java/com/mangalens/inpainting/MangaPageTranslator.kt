@@ -89,8 +89,9 @@ class MangaPageTranslator(
         val translationProvider = providerFor(tag)
         if (!translationProvider.prepare()) {
             throw IllegalStateException(
-                "Model terjemahan $tag → Indonesia belum tersedia. " +
-                    "Sambungkan internet sekali, lalu ketuk bubble lagi."
+                "Provider ${translationProvider.displayName} belum siap. " +
+                    "Untuk LLM, isi LLM_API_KEY di file .env lalu build ulang; " +
+                    "untuk ML Kit, sambungkan internet sekali lalu ketuk bubble lagi."
             )
         }
 
