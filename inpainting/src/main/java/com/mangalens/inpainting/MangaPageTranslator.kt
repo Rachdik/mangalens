@@ -1,8 +1,8 @@
 package com.mangalens.inpainting
 
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.graphics.Color
+import android.graphics.Rect
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.OcrEngine
 import com.mangalens.ocr.RecognizedBlock
@@ -11,7 +11,6 @@ import com.mangalens.translation.MlKitTranslationProvider
 import com.mangalens.translation.TranslateResult
 import com.mangalens.translation.TranslationProvider
 import com.mangalens.translation.TranslationRequest
-import com.mangalens.inpainting.InpaintingEngine
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,12 +43,10 @@ data class PageTranslation(
  * Semua teks yang terbaca diterjemahkan, bukan hanya yang berada di dalam
  * balon: blok yang tidak terdeteksi sebagai balon (kotak narasi, tulisan di
  * luar kotak, teks pada gambar) tetap diterjemahkan dan ditempel pada posisi
- * bloknya sendiri. Dengan begitu satu ketukan menerjemahkan apa pun yang ada
- * di layar.
+ * bloknya sendiri.
  *
- * Bahasa sumber ditentukan dari teks yang benar-benar terbaca, bukan dari
- * pilihan pengguna, karena pilihan yang salah (mis. "Jepang" pada komik
- * Inggris) menghasilkan terjemahan kosong atau tidak berubah.
+ * Bahasa sumber ditentukan dari teks yang benar-benar terbaca, kecuali pengguna
+ * memilih bahasa sumber secara eksplisit.
  *
  * Provider dibuat lewat [providerFactory] dan di-cache per bahasa sehingga
  * model ML Kit tidak dimuat ulang setiap ketukan.
@@ -63,10 +60,6 @@ class MangaPageTranslator(
     private var provider: TranslationProvider? = null
     private var providerKey: String? = null
 
-    /**
-     * @param sourceTag kode bahasa sumber, atau "auto" untuk dideteksi dari teks.
-     * @param targetTag kode bahasa hasil terjemahan.
-     */
     suspend fun translate(
         bitmap: Bitmap,
         script: LanguageScript,
@@ -138,9 +131,77 @@ class MangaPageTranslator(
     }
 
     /**
+     * Terjemahkan sekaligus hapus teks asli dengan inpainting.
+     *
+     * Bitmap masukan tetap milik pemanggil; hasilnya bitmap BARU (salinan yang
+     * sudah diinpainting) sehingga pemanggil bertanggung jawab me-recycle
+     * keduanya bila perlu.
+     */
+    suspend fun translateWithInpaint(
+        bitmap: Bitmap,
+        script: LanguageScript,
+        inpaintingEngine: InpaintingEngine,
+        sourceTag: String = "auto",
+        targetTag: String = "id"
+    ): Pair<Bitmap, PageTranslation> {
+        val result = translate(bitmap, script, sourceTag, targetTag)
+        if (result.bubbles.isEmpty()) {
+            return bitmap.copy(Bitmap.Config.ARGB_8888, true) to result
+        }
+
+        val mask = createMask(
+            width = bitmap.width,
+            height = bitmap.height,
+            textBounds = result.bubbles.map { it.textBounds }
+        )
+        val inpainted = try {
+            inpaintingEngine.inpaint(bitmap, mask)
+        } finally {
+            if (!mask.isRecycled) mask.recycle()
+        }
+        return inpainted to result
+    }
+
+    /**
+     * Mask putih di area teks, hitam di area lain. Tiap kotak teks dilebarkan
+     * sedikit ([MASK_DILATION]) agar sisa anti-aliasing huruf asli ikut tertutup;
+     * tanpa ini tepi huruf masih terlihat sebagai bayangan tipis.
+     */
+    private fun createMask(width: Int, height: Int, textBounds: List<Rect>): Bitmap {
+        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        java.util.Arrays.fill(pixels, Color.BLACK)
+
+        for (rect in textBounds) {
+            val pad = max(2, (rect.height() * MASK_DILATION).toInt())
+            paintRect(
+                pixels,
+                width,
+                height,
+                Rect(rect.left - pad, rect.top - pad, rect.right + pad, rect.bottom + pad),
+                Color.WHITE
+            )
+        }
+
+        mask.setPixels(pixels, 0, width, 0, 0, width, height)
+        return mask
+    }
+
+    private fun paintRect(pixels: IntArray, width: Int, height: Int, rect: Rect, color: Int) {
+        val left = rect.left.coerceIn(0, width)
+        val top = rect.top.coerceIn(0, height)
+        val right = rect.right.coerceIn(0, width)
+        val bottom = rect.bottom.coerceIn(0, height)
+        for (y in top until bottom) {
+            val rowStart = y * width
+            for (x in left until right) {
+                pixels[rowStart + x] = color
+            }
+        }
+    }
+
+    /**
      * Gabungkan balon hasil deteksi dengan blok OCR yang tidak tercakup balon.
-     * Blok bebas memakai warna latar di sekitarnya agar tempelan menyatu dengan
-     * gambar aslinya.
      */
     private fun buildRegions(
         bitmap: Bitmap,
@@ -207,44 +268,6 @@ class MangaPageTranslator(
         return created
     }
 
-    suspend fun translateWithInpaint(
-        bitmap: Bitmap,
-        script: LanguageScript,
-        inpaintingEngine: InpaintingEngine,
-        sourceTag: String = "auto",
-        targetTag: String = "id"
-    ): Pair<Bitmap, PageTranslation> {
-        val result = translate(bitmap, script, sourceTag, targetTag)
-        if (result.bubbles.isEmpty()) {
-            return Pair(bitmap.copy(Bitmap.Config.ARGB_8888, true), result)
-        }
-        val mask = createMask(bitmap.width, bitmap.height, result.bubbles.map { it.textBounds })
-        val inpainted = inpaintingEngine.inpaint(bitmap, mask)
-        return Pair(inpainted, result)
-    }
-
-    private fun createMask(width: Int, height: Int, textBounds: List<Rect>): Bitmap {
-        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val pixels = IntArray(width * height)
-        for (i in pixels.indices) pixels[i] = Color.BLACK
-        for (rect in textBounds) paintRect(pixels, width, height, rect, Color.WHITE)
-        mask.setPixels(pixels, 0, width, 0, 0, width, height)
-        return mask
-    }
-
-    private fun paintRect(pixels: IntArray, width: Int, height: Int, rect: Rect, color: Int) {
-        var y = rect.top
-        while (y < rect.bottom) {
-            var x = rect.left
-            while (x < rect.right) {
-                if (x >= 0 && x < width && y >= 0 && y < height) pixels[y * width + x] = color
-                x++
-            }
-            y++
-        }
-    }
-
-
     fun close() {
         (provider as? MlKitTranslationProvider)?.close()
         provider = null
@@ -261,5 +284,8 @@ class MangaPageTranslator(
 
     private companion object {
         const val MAX_REGIONS = 40
+
+        /** Pelebaran mask relatif terhadap tinggi kotak teks. */
+        const val MASK_DILATION = 0.06f
     }
 }

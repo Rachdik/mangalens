@@ -113,11 +113,9 @@ class ReaderActivity : AppCompatActivity() {
         translatePipeline = ReadTranslatePipeline(this)
         translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
 
-        // Setup callback terjemahan
         translatePipeline?.onTranslationReady = { bubbles ->
             runCatching {
                 if (bubbles.isEmpty()) {
-                    // Bersihkan overlay jika tidak ada balon yang diterjemahkan
                     binding.webView.evaluateJavascript(
                         """
                         var overlay = document.getElementById('mangalens-overlay');
@@ -126,7 +124,6 @@ class ReaderActivity : AppCompatActivity() {
                         null
                     )
                 } else {
-                    // Buat atau dapatkan container overlay
                     binding.webView.evaluateJavascript(
                         """
                         (function() {
@@ -137,7 +134,6 @@ class ReaderActivity : AppCompatActivity() {
                                 container.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
                                 document.body.appendChild(container);
                             }
-                            // Hapus overlay lama
                             var oldDivs = container.querySelectorAll('.mangalens-translation');
                             oldDivs.forEach(function(d) { d.remove(); });
                         })();
@@ -145,7 +141,6 @@ class ReaderActivity : AppCompatActivity() {
                         null
                     )
 
-                    // Tempel teks terjemahan untuk setiap bubble
                     for (bubble in bubbles) {
                         val overlayHtml = buildString {
                             append("<div class='mangalens-translation' style='position:absolute;left:")
@@ -186,7 +181,6 @@ class ReaderActivity : AppCompatActivity() {
             }
         }
 
-        // Mulai monitor otomatis untuk gambar yang siap
         translationManager = ImageTranslationManager(
             context = this,
             scanSession = scanSession,
@@ -213,7 +207,7 @@ class ReaderActivity : AppCompatActivity() {
             setAcceptThirdPartyCookies(binding.webView, true)
         }
 
-        binding.webView.addJavascriptInterface(ScanBridge(), "MangaLensBridge")
+        binding.webView.addJavascriptInterface(ScanBridge(), BRIDGE_NAME)
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -314,15 +308,26 @@ class ReaderActivity : AppCompatActivity() {
         outState.putBundle(KEY_WEBVIEW_STATE, webState)
     }
 
+    /**
+     * Semua resource dilepas di sini. JavaScript interface dilepas sebelum
+     * WebView dihancurkan agar tidak ada callback dari halaman yang masih
+     * memegang referensi Activity.
+     */
     override fun onDestroy() {
         translationManager?.stop()
         translationManager = null
         translatePipeline?.close()
         translatePipeline = null
-        if (isFinishing) {
-            binding.webView.stopLoading()
-            binding.webView.destroy()
+        imageSheet = null
+        scanSession.reset()
+
+        binding.webView.apply {
+            stopLoading()
+            runCatching { removeJavascriptInterface(BRIDGE_NAME) }
+            removeAllViews()
+            runCatching { destroy() }
         }
+
         super.onDestroy()
     }
 
@@ -330,6 +335,7 @@ class ReaderActivity : AppCompatActivity() {
         private const val EXTRA_URL = "com.mangalens.reader.EXTRA_URL"
         private const val KEY_WEBVIEW_STATE = "reader_webview_state"
         private const val SCAN_SCRIPT = "mangalens_scan.js"
+        private const val BRIDGE_NAME = "MangaLensBridge"
 
         fun intent(context: Context, url: String): Intent =
             Intent(context, ReaderActivity::class.java).putExtra(EXTRA_URL, url)

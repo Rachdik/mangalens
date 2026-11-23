@@ -1,5 +1,7 @@
 package com.mangalens.translation
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -103,18 +105,19 @@ class LlmTranslationProvider(
         return array.toString()
     }
 
-    private fun post(body: String): String {
+    /** Jaringan selalu di [Dispatchers.IO] agar thread pemanggil tidak diblokir. */
+    private suspend fun post(body: String): String = withContext(Dispatchers.IO) {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 20_000
-            readTimeout = 60_000
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
         }
 
-        return try {
+        try {
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -162,5 +165,10 @@ class LlmTranslationProvider(
         "ms" -> "Melayu"
         "ar" -> "Arab"
         else -> tag.ifBlank { "bahasa asing" }
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 20_000
+        const val READ_TIMEOUT_MS = 60_000
     }
 }

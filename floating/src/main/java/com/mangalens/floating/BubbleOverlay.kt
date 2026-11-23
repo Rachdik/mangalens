@@ -110,6 +110,7 @@ class BubbleOverlay(
     }
 
     fun hide() {
+        handler.removeCallbacks(hidePanelTask)
         clearTranslations()
         hidePanel()
         val view = bubble

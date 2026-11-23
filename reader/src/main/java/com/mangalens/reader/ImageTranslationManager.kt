@@ -1,28 +1,28 @@
 package com.mangalens.reader
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import com.mangalens.reader.images.DetectedImage
 import com.mangalens.reader.images.ImageDownloadState
 import com.mangalens.reader.images.ImageScanSession
-import com.mangalens.reader.images.ImageStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.io.File
 
 /**
  * Mengelola penerjemahan otomatis gambar yang dideteksi oleh ImageScanSession.
- * Saat gambar siap (terunduh dan tersedia di cache), pipeline akan otomatis
- * memproses gambar tersebut untuk terjemahan.
+ *
+ * Penting: kelas ini TIDAK memuat bitmap sendiri. Bitmap dimuat dan di-recycle
+ * oleh [ReadTranslatePipeline.processImageFile]. Versi sebelumnya memuat bitmap
+ * lalu memanggil `pipeline.processImage(bitmap)` (yang langsung kembali karena
+ * hanya meluncurkan coroutine) dan me-recycle bitmap di blok finally — sehingga
+ * bitmap bisa dipakai setelah di-recycle oleh coroutine pipeline.
  */
 class ImageTranslationManager(
-    private val context: Context,
+    @Suppress("unused") private val context: Context,
     private val scanSession: ImageScanSession,
     private val pipeline: ReadTranslatePipeline,
     private val scope: CoroutineScope
@@ -36,9 +36,7 @@ class ImageTranslationManager(
     /** Mulai monitor otomatis untuk gambar yang siap diterjemahkan. */
     fun start() {
         stop()
-        job = scope.launch {
-            monitorImageStates()
-        }
+        job = scope.launch { monitorImageStates() }
     }
 
     /** Hentikan monitor otomatis. */
@@ -49,20 +47,18 @@ class ImageTranslationManager(
     }
 
     /**
-     * Reset daftar gambar yang sudah diproses.
-     * Dipanggil saat halaman berubah agar gambar di halaman baru
-     * bisa diproses meskipun URL-nya sama dengan gambar di halaman lama.
+     * Reset daftar gambar yang sudah diproses, dipanggil saat halaman berubah
+     * agar gambar di halaman baru tetap bisa diproses.
      */
     fun reset() {
         processedImages.clear()
     }
 
-    /** Proses gambar tertentu secara manual (mis. saat user menekan bubble). */
+    /** Proses satu gambar secara manual (mis. saat pengguna menekan bubble). */
     fun processImage(image: DetectedImage) {
-        val states = scanSession.states.value
-        val state = states[image.key]
+        val state = scanSession.states.value[image.key]
         if (state is ImageDownloadState.Ready) {
-            scope.launch { processImageFile(state.file, image) }
+            scope.launch { processImageFile(state) }
         }
     }
 
@@ -73,35 +69,32 @@ class ImageTranslationManager(
 
             for (image in images) {
                 if (processedImages.contains(image.key)) continue
-
                 val state = states[image.key]
                 if (state is ImageDownloadState.Ready) {
                     _isProcessing.value = true
                     try {
-                        processImageFile(state.file, image)
+                        processImageFile(state)
                         processedImages.add(image.key)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    } catch (c: kotlinx.coroutines.CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
+                        // Satu gambar gagal tidak boleh menghentikan monitoring.
+                        processedImages.add(image.key)
                     } finally {
                         _isProcessing.value = false
                     }
                 }
             }
 
-            kotlinx.coroutines.delay(2000)
+            delay(POLL_INTERVAL_MS)
         }
     }
 
-    private suspend fun processImageFile(file: File, image: DetectedImage) {
-        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            ?: return
+    private fun processImageFile(state: ImageDownloadState.Ready) {
+        pipeline.processImageFile(state.file, "auto", "id")
+    }
 
-        try {
-            pipeline.processImage(bitmap, "auto", "id")
-        } finally {
-            if (bitmap.isMutable) {
-                bitmap.recycle()
-            }
-        }
+    private companion object {
+        const val POLL_INTERVAL_MS = 2000L
     }
 }

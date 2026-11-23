@@ -3,230 +3,306 @@ package com.mangalens.inpainting
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Inpainting engine berbasis sampling ring + interpolasi.
+ * Inpainting sederhana berbasis interpolasi warna dari piksel asli di sekitar
+ * area yang di-mask.
  *
- * Pendekatan:
- * 1. Ambil sampel warna dari cincin di sekitar area teks
- * 2. Isi area teks dengan interpolasi weighted dari sampel tersebut
- * 3. Softening di boundary agar tidak ada garis tajam
+ * Cara kerja:
+ * 1. Untuk setiap baris/kolom di dalam kotak mask, cari piksel asli terdekat di
+ *    sisi kiri, kanan, atas, dan bawah (di luar area mask).
+ * 2. Warna setiap piksel di dalam mask dihitung dari rata-rata berbobot empat
+ *    warna sisi tersebut (bobot ~ 1/jarak).
+ * 3. Tepi mask dilembutkan dengan rata-rata piksel asli di sekitarnya.
  *
- * Keterbatasan:
- * - Tidak reconstruct screentone atau pola kompleks
- * - Latar bersih (solid color/gradien halus) hasilnya baik
- * - Latar dengan garis-garis atau pola akan terlihat blur
- * - Untuk hasil terbaik, gambar asli harus punya latar yang cukup homogen
+ * Ini benar-benar MENGISI area dengan warna dari gambar aslinya, bukan
+ * menempelkan satu warna solid — tetapi bukan rekonstruksi semantik.
  *
- * Implementasi ini SENGaja SIDIK: tidak pakai OpenCV native karena
- * - OpenCV Android ~10-20 MB tambahan di APK
- * - Native lib per ABI memperbesar APK
- * - Untuk tujuan ini (tutup teks manga di balon berwarna), pendekatan sederhana sudah cukup
+ * KETERBATASAN (jujur, belum diuji pada perangkat):
+ * - Latar polos atau gradien halus: hasil biasanya menyatu.
+ * - Screentone / pola garis / tekstur: hasilnya akan tampak blur/halus karena
+ *   pola tidak direkonstruksi. Tidak setara Content-Aware Fill atau inpainting AI.
+ * - Gambar dengan garis gambar (outline karakter) yang melewati area teks akan
+ *   kehilangan garis tersebut di area itu.
+ * - Tidak ada OpenCV/native library: ukuran APK tidak bertambah dan tidak ada
+ *   dependensi ABI tambahan, dengan konsekuensi kualitas di atas.
  */
 class BasicInpaintingEngine(
-    private val ringRadius: Int = 8,
+    /** Radius minimum pencarian piksel asli di luar kotak mask. */
+    private val searchRadius: Int = 6,
+    /** Ukuran kernel pelembutan tepi. */
     private val blurRadius: Int = 3,
     private val softenEdges: Boolean = true
 ) : InpaintingEngine {
 
     override fun inpaint(source: Bitmap, mask: Bitmap): Bitmap {
-        if (source.width != mask.width || source.height != mask.height) {
-            throw IllegalArgumentException(
-                "Source dan mask harus sama ukurannya"
-            )
+        require(source.width == mask.width && source.height == mask.height) {
+            "Source dan mask harus sama ukurannya"
         }
-        val w = source.width
-        val h = source.height
+
+        val width = source.width
+        val height = source.height
         val result = source.copy(Bitmap.Config.ARGB_8888, true)
-        val pixels = IntArray(w * h)
-        result.getPixels(pixels, 0, w, 0, 0, w, h)
-        val maskPixels = IntArray(w * h)
-        mask.getPixels(maskPixels, 0, w, 0, 0, w, h)
 
-        val bbox = boundingBoxOf(maskPixels, w, h) ?: return result
-        val ringSamples = sampleRing(pixels, w, h, bbox, ringRadius)
+        val pixels = IntArray(width * height)
+        result.getPixels(pixels, 0, width, 0, 0, width, height)
+        val maskPixels = IntArray(width * height)
+        mask.getPixels(maskPixels, 0, width, 0, 0, width, height)
 
-        if (ringSamples.isEmpty()) {
-            fillRect(pixels, w, h, bbox, Color.WHITE)
-        } else {
-            fillFromSamples(pixels, w, h, bbox, maskPixels, ringSamples)
-        }
+        val bbox = boundingBoxOf(maskPixels, width, height) ?: return result
+        fillFromEdges(pixels, maskPixels, width, height, bbox)
 
         if (softenEdges) {
-            softenBoundary(pixels, w, h, bbox, maskPixels, blurRadius)
+            softenBoundary(pixels, maskPixels, width, height, bbox, blurRadius)
         }
 
-        result.setPixels(pixels, 0, w, 0, 0, w, h)
+        result.setPixels(pixels, 0, width, 0, 0, width, height)
         return result
     }
 
-    private fun sampleRing(pixels: IntArray, w: Int, h: Int, bbox: Rect, radius: Int): List<Sample> {
-        val samples = mutableListOf<Sample>()
-        val left = (bbox.left - radius).coerceAtLeast(0)
-        val top = (bbox.top - radius).coerceAtLeast(0)
-        val right = (bbox.right + radius).coerceAtMost(w)
-        val bottom = (bbox.bottom + radius).coerceAtMost(h)
-        val step = kotlin.math.max(1, radius / 2)
-        var y = top
-        while (y < bottom) {
-            var x = left
-            while (x < right) {
-                if (x >= bbox.left && x < bbox.right && y >= bbox.top && y < bbox.bottom) {
-                    x += step
-                    continue
+    /**
+     * Isi area mask dengan interpolasi dari piksel asli terdekat di empat sisi.
+     * Semua warna berasal dari gambar aslinya, sehingga latar solid dan gradien
+     * tetap menyatu.
+     */
+    private fun fillFromEdges(
+        pixels: IntArray,
+        maskPixels: IntArray,
+        width: Int,
+        height: Int,
+        bbox: Rect
+    ) {
+        val fallback = averageColor(pixels, maskPixels)
+        val pad = searchRadius + 1
+
+        val leftColor = IntArray(height)
+        val rightColor = IntArray(height)
+        for (y in bbox.top until bbox.bottom) {
+            leftColor[y] = nearestHorizontal(pixels, maskPixels, width, y, bbox.left - pad, -1)
+            rightColor[y] = nearestHorizontal(pixels, maskPixels, width, y, bbox.right + pad - 1, 1)
+        }
+
+        val topColor = IntArray(width)
+        val bottomColor = IntArray(width)
+        for (x in bbox.left until bbox.right) {
+            topColor[x] = nearestVertical(pixels, maskPixels, width, height, x, bbox.top - pad, -1)
+            bottomColor[x] = nearestVertical(pixels, maskPixels, width, height, x, bbox.bottom + pad - 1, 1)
+        }
+
+        for (y in bbox.top until bbox.bottom) {
+            for (x in bbox.left until bbox.right) {
+                val index = y * width + x
+                if (maskPixels[index] == 0) continue
+
+                val weightLeft = 1.0 / (x - bbox.left + 1)
+                val weightRight = 1.0 / (bbox.right - x)
+                val weightTop = 1.0 / (y - bbox.top + 1)
+                val weightBottom = 1.0 / (bbox.bottom - y)
+
+                var totalWeight = 0.0
+                var sumR = 0.0
+                var sumG = 0.0
+                var sumB = 0.0
+
+                fun add(color: Int, weight: Double) {
+                    if (color == 0) return
+                    totalWeight += weight
+                    sumR += Color.red(color) * weight
+                    sumG += Color.green(color) * weight
+                    sumB += Color.blue(color) * weight
                 }
-                val idx = y * w + x
-                val color = pixels[idx]
-                if (Color.alpha(color) > 128) {
-                    samples.add(Sample(x, y, color))
+
+                add(leftColor[y], weightLeft)
+                add(rightColor[y], weightRight)
+                add(topColor[x], weightTop)
+                add(bottomColor[x], weightBottom)
+
+                pixels[index] = if (totalWeight > 0.0) {
+                    Color.argb(
+                        255,
+                        (sumR / totalWeight).roundToInt().coerceIn(0, 255),
+                        (sumG / totalWeight).roundToInt().coerceIn(0, 255),
+                        (sumB / totalWeight).roundToInt().coerceIn(0, 255)
+                    )
+                } else {
+                    fallback
                 }
-                x += step
+            }
+        }
+    }
+
+    /** Piksel asli terdekat pada baris y, mulai dari x ke arah step. */
+    private fun nearestHorizontal(
+        pixels: IntArray,
+        maskPixels: IntArray,
+        width: Int,
+        y: Int,
+        from: Int,
+        step: Int
+    ): Int {
+        var x = from
+        val limit = if (step < 0) 0 else width - 1
+        while (if (step < 0) x >= limit else x <= limit) {
+            if (x in 0 until width) {
+                val index = y * width + x
+                if (maskPixels[index] == 0) {
+                    val color = pixels[index]
+                    if (Color.alpha(color) > 16) return color
+                }
+            }
+            x += step
+        }
+        return 0
+    }
+
+    /** Piksel asli terdekat pada kolom x, mulai dari y ke arah step. */
+    private fun nearestVertical(
+        pixels: IntArray,
+        maskPixels: IntArray,
+        width: Int,
+        height: Int,
+        x: Int,
+        from: Int,
+        step: Int
+    ): Int {
+        var y = from
+        val limit = if (step < 0) 0 else height - 1
+        while (if (step < 0) y >= limit else y <= limit) {
+            if (y in 0 until height) {
+                val index = y * width + x
+                if (maskPixels[index] == 0) {
+                    val color = pixels[index]
+                    if (Color.alpha(color) > 16) return color
+                }
             }
             y += step
         }
-        return samples
+        return 0
     }
 
-    private fun fillFromSamples(pixels: IntArray, w: Int, h: Int, bbox: Rect, maskPixels: IntArray, samples: List<Sample>) {
-        val maxDist = (bbox.width() + bbox.height()).toDouble()
-        var y = bbox.top
-        while (y < bbox.bottom) {
-            var x = bbox.left
-            while (x < bbox.right) {
-                val idx = y * w + x
-                if (maskPixels[idx] == 0) { x++; continue }
-                var totalWeight = 0.0
-                var totalR = 0.0
-                var totalG = 0.0
-                var totalB = 0.0
-                val maxS = kotlin.math.min(8, samples.size)
-                for (i in 0 until maxS) {
-                    val s = samples[i]
-                    val dx = x - s.x
-                    val dy = y - s.y
-                    val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble())
-                    if (dist > maxDist) continue
-                    val weight = 1.0 / (dist + 1.0)
-                    totalWeight += weight
-                    totalR += Color.red(s.color) * weight
-                    totalG += Color.green(s.color) * weight
-                    totalB += Color.blue(s.color) * weight
+    /**
+     * Rata-rata warna piksel asli (di luar mask) sebagai cadangan bila tidak ada
+     * piksel tetangga yang bisa dipakai.
+     */
+    private fun averageColor(pixels: IntArray, maskPixels: IntArray): Int {
+        var count = 0
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+        var index = 0
+        while (index < pixels.size) {
+            if (maskPixels[index] == 0) {
+                val color = pixels[index]
+                if (Color.alpha(color) > 16) {
+                    sumR += Color.red(color)
+                    sumG += Color.green(color)
+                    sumB += Color.blue(color)
+                    count++
                 }
-                if (totalWeight > 0) {
-                    pixels[idx] = Color.argb(
-                        255,
-                        (totalR / totalWeight).roundToInt().coerceIn(0, 255),
-                        (totalG / totalWeight).roundToInt().coerceIn(0, 255),
-                        (totalB / totalWeight).roundToInt().coerceIn(0, 255)
-                    )
-                }
-                x++
             }
-            y++
+            index += 7 // sampling jarang agar cepat
         }
+        if (count == 0) return Color.WHITE
+        return Color.argb(
+            255,
+            (sumR / count).toInt().coerceIn(0, 255),
+            (sumG / count).toInt().coerceIn(0, 255),
+            (sumB / count).toInt().coerceIn(0, 255)
+        )
     }
 
-    private fun softenBoundary(pixels: IntArray, w: Int, h: Int, bbox: Rect, maskPixels: IntArray, radius: Int) {
-        val halfR = radius / 2
-        val blurred = pixels.copyOf()
-        var y = (bbox.top - halfR).coerceAtLeast(0)
-        while (y < (bbox.bottom + halfR).coerceAtMost(h)) {
-            var x = (bbox.left - halfR).coerceAtLeast(0)
-            while (x < (bbox.right + halfR).coerceAtMost(w)) {
-                val idx = y * w + x
-                if (maskPixels[idx] != 0) { x++; continue }
+    /**
+     * Lembutkan batas mask: warna di dalam mask dicampur dengan rata-rata piksel
+     * asli di sekelilingnya agar tidak ada garis tegas antara area yang diisi dan
+     * gambar aslinya.
+     */
+    private fun softenBoundary(
+        pixels: IntArray,
+        maskPixels: IntArray,
+        width: Int,
+        height: Int,
+        bbox: Rect,
+        radius: Int
+    ) {
+        val half = max(1, radius / 2)
+        val snapshot = pixels.copyOf()
+        val blendArea = Rect(
+            (bbox.left - half).coerceAtLeast(0),
+            (bbox.top - half).coerceAtLeast(0),
+            (bbox.right + half).coerceAtMost(width),
+            (bbox.bottom + half).coerceAtMost(height)
+        )
+
+        for (y in blendArea.top until blendArea.bottom) {
+            for (x in blendArea.left until blendArea.right) {
+                val index = y * width + x
+                if (maskPixels[index] == 0) continue
+
                 var count = 0
                 var sumR = 0
                 var sumG = 0
                 var sumB = 0
-                var yy = kotlin.math.max(0, y - 1)
-                while (yy <= kotlin.math.min(h - 1, y + 1)) {
-                    var xx = kotlin.math.max(0, x - 1)
-                    while (xx <= kotlin.math.min(w - 1, x + 1)) {
-                        val iidx = yy * w + xx
-                        if (maskPixels[iidx] == 0) {
-                            sumR += Color.red(pixels[iidx])
-                            sumG += Color.green(pixels[iidx])
-                            sumB += Color.blue(pixels[iidx])
+                for (yy in max(0, y - 1)..min(height - 1, y + 1)) {
+                    for (xx in max(0, x - 1)..min(width - 1, x + 1)) {
+                        val neighbour = yy * width + xx
+                        if (maskPixels[neighbour] == 0) {
+                            val color = snapshot[neighbour]
+                            sumR += Color.red(color)
+                            sumG += Color.green(color)
+                            sumB += Color.blue(color)
                             count++
                         }
-                        xx++
                     }
-                    yy++
                 }
                 if (count > 0) {
-                    blurred[idx] = Color.argb(
+                    val surrounding = Color.argb(
                         255,
-                        (sumR / count).coerceIn(0, 255),
-                        (sumG / count).coerceIn(0, 255),
-                        (sumB / count).coerceIn(0, 255)
+                        sumR / count,
+                        sumG / count,
+                        sumB / count
                     )
+                    pixels[index] = blendColors(pixels[index], surrounding, SOFTEN_FACTOR)
                 }
-                x++
             }
-            y++
-        }
-        y = bbox.top
-        while (y < bbox.bottom) {
-            var x = bbox.left
-            while (x < bbox.right) {
-                val idx = y * w + x
-                if (maskPixels[idx] != 0) {
-                    pixels[idx] = blendColors(pixels[idx], blurred[idx], 0.75)
-                }
-                x++
-            }
-            y++
         }
     }
 
     private fun blendColors(a: Int, b: Int, factor: Double): Int {
-        val fa = factor
-        val fb = 1.0 - factor
+        val inverse = 1.0 - factor
         return Color.argb(
             255,
-            (Color.red(a) * fa + Color.red(b) * fb).roundToInt().coerceIn(0, 255),
-            (Color.green(a) * fa + Color.green(b) * fb).roundToInt().coerceIn(0, 255),
-            (Color.blue(a) * fa + Color.blue(b) * fb).roundToInt().coerceIn(0, 255)
+            (Color.red(a) * factor + Color.red(b) * inverse).roundToInt().coerceIn(0, 255),
+            (Color.green(a) * factor + Color.green(b) * inverse).roundToInt().coerceIn(0, 255),
+            (Color.blue(a) * factor + Color.blue(b) * inverse).roundToInt().coerceIn(0, 255)
         )
     }
 
-    private fun fillRect(pixels: IntArray, w: Int, h: Int, rect: Rect, color: Int) {
-        var y = rect.top
-        while (y < rect.bottom) {
-            var x = rect.left
-            while (x < rect.right) {
-                if (x < w && y < h) pixels[y * w + x] = color
-                x++
-            }
-            y++
-        }
-    }
-
-    private fun boundingBoxOf(maskPixels: IntArray, w: Int, h: Int): Rect? {
+    private fun boundingBoxOf(maskPixels: IntArray, width: Int, height: Int): Rect? {
         var minX = Int.MAX_VALUE
         var minY = Int.MAX_VALUE
         var maxX = Int.MIN_VALUE
         var maxY = Int.MIN_VALUE
         var found = false
-        var y = 0
-        while (y < h) {
-            var x = 0
-            while (x < w) {
-                if (maskPixels[y * w + x] != 0) {
+        for (y in 0 until height) {
+            val rowStart = y * width
+            for (x in 0 until width) {
+                if (maskPixels[rowStart + x] != 0) {
                     if (x < minX) minX = x
                     if (y < minY) minY = y
                     if (x > maxX) maxX = x
                     if (y > maxY) maxY = y
                     found = true
                 }
-                x++
             }
-            y++
         }
         return if (found) Rect(minX, minY, maxX + 1, maxY + 1) else null
     }
 
-    private data class Sample(val x: Int, val y: Int, val color: Int)
+    private companion object {
+        /** Bobot warna hasil isi terhadap warna sekitarnya saat melembutkan tepi. */
+        const val SOFTEN_FACTOR = 0.75
+    }
 }
