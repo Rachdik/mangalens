@@ -34,15 +34,26 @@ class MlKitOcrEngine : OcrEngine {
     private suspend fun recognizeAuto(bitmap: Bitmap): List<RecognizedBlock> {
         val latin = runCatching { recognizeWith(bitmap, LanguageScript.LATIN) }
             .getOrDefault(emptyList())
-        val latinChars = ScriptDetector.characterCount(latin.joinToString(" ") { it.text })
-        if (latinChars >= AUTO_ENOUGH_CHARS) return latin
+        var best = latin
+        var bestChars = scriptChars(latin)
+        // Halaman berhuruf Latin (komik/manhwa terjemahan Inggris) biasanya
+        // sudah cukup terbaca; tiga pass tambahan hanya membuang waktu.
+        if (bestChars >= AUTO_ENOUGH_CHARS) return latin
 
-        val japanese = runCatching { recognizeWith(bitmap, LanguageScript.JAPANESE) }
-            .getOrDefault(emptyList())
-        val japaneseChars = ScriptDetector.characterCount(japanese.joinToString(" ") { it.text })
-
-        return if (japaneseChars > latinChars) japanese else latin
+        for (script in OTHER_SCRIPTS) {
+            val blocks = runCatching { recognizeWith(bitmap, script) }
+                .getOrDefault(emptyList())
+            val chars = scriptChars(blocks)
+            if (chars > bestChars) {
+                best = blocks
+                bestChars = chars
+            }
+        }
+        return best
     }
+
+    private fun scriptChars(blocks: List<RecognizedBlock>): Int =
+        ScriptDetector.characterCount(blocks.joinToString(" ") { it.text })
 
     private suspend fun recognizeWith(
         bitmap: Bitmap,
@@ -83,8 +94,15 @@ class MlKitOcrEngine : OcrEngine {
     }
 
     private companion object {
-        /** Di atas angka ini halaman dianggap berisi teks Latin; tidak perlu coba Jepang. */
+        /** Di atas angka ini halaman dianggap berisi teks Latin; tidak perlu coba skrip lain. */
         const val AUTO_ENOUGH_CHARS = 40
+
+        /** Dicoba berurutan saat halaman hampir tidak berisi huruf Latin. */
+        val OTHER_SCRIPTS = listOf(
+            LanguageScript.JAPANESE,
+            LanguageScript.KOREAN,
+            LanguageScript.CHINESE
+        )
     }
 }
 

@@ -55,14 +55,17 @@ object BubbleDetector {
         }
         if (usable.isEmpty()) return emptyList()
 
-        val groups = groupBlocks(usable)
-        if (groups.isEmpty()) return emptyList()
-
         val scaled = scaleForAnalysis(bitmap)
         val image = scaled.first
         val scale = scaled.second
         val pixels = IntArray(image.width * image.height)
         image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+
+        val groups = groupBlocks(usable, pixels, image.width, image.height, scale)
+        if (groups.isEmpty()) {
+            if (scaled.third) image.recycle()
+            return emptyList()
+        }
 
         val result = groups.mapNotNull { group ->
             val union = Rect(
@@ -92,6 +95,44 @@ object BubbleDetector {
 
         if (scaled.third) image.recycle()
         return result
+    }
+
+    /**
+     * Warna latar dan warna teks untuk blok OCR yang tidak berada di dalam
+     * balon (kotak narasi, teks di luar kotak, tulisan pada gambar).
+     * Warna diambil dari cincin di sekitar blok agar tempelan menyatu dengan
+     * latar aslinya; teks dipilih hitam atau putih sesuai kecerahan latar.
+     */
+    fun surroundings(bitmap: Bitmap, textBounds: Rect): Pair<Int, Int> {
+        val pad = (max(textBounds.width(), textBounds.height()) * 0.22f)
+            .toInt()
+            .coerceIn(4, 40)
+        val ring = Rect(
+            textBounds.left - pad,
+            textBounds.top - pad,
+            textBounds.right + pad,
+            textBounds.bottom + pad
+        ).clampTo(bitmap.width, bitmap.height)
+
+        val histogram = HashMap<Int, Int>()
+        val stepX = max(1, ring.width() / 24)
+        val stepY = max(1, ring.height() / 24)
+        var y = ring.top
+        while (y < ring.bottom) {
+            var x = ring.left
+            while (x < ring.right) {
+                if (!textBounds.contains(x, y)) {
+                    val color = quantize(bitmap.getPixel(x, y))
+                    histogram[color] = (histogram[color] ?: 0) + 1
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+
+        val fill = histogram.maxByOrNull { it.value }?.key ?: Color.WHITE
+        val textColor = if (luminance(fill) > 150) Color.BLACK else Color.WHITE
+        return fill to textColor
     }
 
     /** Warna dominan di cincin sekitar kotak teks (latarbalon). */
@@ -212,7 +253,13 @@ object BubbleDetector {
         return null
     }
 
-    private fun groupBlocks(blocks: List<RecognizedBlock>): List<BlockGroup> {
+    private fun groupBlocks(
+        blocks: List<RecognizedBlock>,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        scale: Float
+    ): List<BlockGroup> {
         val parent = IntArray(blocks.size) { it }
 
         fun find(index: Int): Int {
@@ -232,7 +279,9 @@ object BubbleDetector {
 
         for (i in blocks.indices) {
             for (j in i + 1 until blocks.size) {
-                if (mergeable(blocks[i].bounds, blocks[j].bounds)) union(i, j)
+                if (mergeable(blocks[i].bounds, blocks[j].bounds, pixels, width, height, scale)) {
+                    union(i, j)
+                }
             }
         }
 
@@ -245,14 +294,96 @@ object BubbleDetector {
             .sortedWith(compareBy({ it.top }, { it.left }))
     }
 
-    /** Dua blok dianggap satu balon bila jaraknya kecil dibanding tinggi huruf. */
-    private fun mergeable(a: Rect, b: Rect): Boolean {
+    /**
+     * Dua blok dianggap satu balon bila jaraknya kecil dibanding tinggi huruf
+     * DAN tidak ada garis gambar/tepi balon di antara keduanya. Tanpa cek garis
+     * ini, dua balon bersebelahan tergabung menjadi satu kotak besar yang
+     * tempelannya menutupi beberapa balon sekaligus.
+     */
+    private fun mergeable(
+        a: Rect,
+        b: Rect,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        scale: Float
+    ): Boolean {
+        val reference = max(min(a.height(), b.height()), 12)
         val horizontalGap = max(0, max(a.left, b.left) - min(a.right, b.right))
         val verticalGap = max(0, max(a.top, b.top) - min(a.bottom, b.bottom))
-        val reference = max(min(a.height(), b.height()), 12)
-        val horizontalLimit = (reference * 1.4f).toInt()
-        val verticalLimit = (reference * 1.2f).toInt()
-        return horizontalGap <= horizontalLimit && verticalGap <= verticalLimit
+        val horizontalLimit = (reference * 1.1f).toInt()
+        val verticalLimit = (reference * 0.9f).toInt()
+        if (horizontalGap > horizontalLimit || verticalGap > verticalLimit) return false
+
+        // Balon bersebelahan: periksa garis vertikal di celah di antara teks.
+        if (horizontalGap > 0 && verticalGap == 0) {
+            val stripLeft = min(a.right, b.right)
+            val stripRight = max(a.left, b.left)
+            val top = max(a.top, b.top)
+            val bottom = min(a.bottom, b.bottom)
+            if (top < bottom &&
+                hasInk(pixels, width, height, scale, stripLeft, top, stripRight, bottom)
+            ) {
+                return false
+            }
+        }
+
+        // Balon bertumpuk: periksa garis horizontal di celah di antara teks.
+        if (verticalGap > 0 && horizontalGap == 0) {
+            val stripTop = min(a.bottom, b.bottom)
+            val stripBottom = max(a.top, b.top)
+            val left = max(a.left, b.left)
+            val right = min(a.right, b.right)
+            if (left < right &&
+                hasInk(pixels, width, height, scale, left, stripTop, right, stripBottom)
+            ) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /**
+     * True bila sebagian besar baris di area celah mengandung piksel gelap —
+     * tanda ada tepi balon/garis gambar yang memisahkan dua kelompok teks.
+     */
+    private fun hasInk(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        scale: Float,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int
+    ): Boolean {
+        val l = (left * scale).toInt().coerceIn(0, width - 1)
+        val r = (right * scale).toInt().coerceIn(l + 1, width)
+        val t = (top * scale).toInt().coerceIn(0, height - 1)
+        val b = (bottom * scale).toInt().coerceIn(t + 1, height)
+
+        val stepY = max(1, (b - t) / 16)
+        val stepX = max(1, (r - l) / 4)
+        var rows = 0
+        var rowsWithInk = 0
+        var y = t
+        while (y < b) {
+            var samples = 0
+            var dark = 0
+            var x = l
+            while (x < r) {
+                samples++
+                if (luminance(pixels[y * width + x]) < INK_LUMA) dark++
+                x += stepX
+            }
+            if (samples > 0) {
+                rows++
+                if (dark * 2 >= samples) rowsWithInk++
+            }
+            y += stepY
+        }
+        return rows > 0 && rowsWithInk * 10 >= rows * 6
     }
 
     /** Kotak cadangan bila flood fill gagal (balon dengan screentone/gradien). */
@@ -329,4 +460,7 @@ object BubbleDetector {
     }
 
     private const val RING_PADDING = 4
+
+    /** Di bawah kecerahan ini piksel dianggap tinta/garis balon. */
+    private const val INK_LUMA = 110
 }

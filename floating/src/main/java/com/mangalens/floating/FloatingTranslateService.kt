@@ -85,23 +85,33 @@ class FloatingTranslateService : Service() {
             IntentCompat.getParcelableExtra(it, FloatingTranslate.EXTRA_RESULT_DATA, Intent::class.java)
         }
 
-        if (resultCode == Activity.RESULT_OK && data != null) {
-            if (!bindProjection(resultCode, data)) {
-                overlay.show()
-                overlay.setStatus(
-                    "Izin rekam layar gagal dipakai. Ketuk bubble untuk mencoba lagi.",
-                    true
-                )
-            }
+        val bound = if (resultCode == Activity.RESULT_OK && data != null) {
+            bindProjection(resultCode, data)
+        } else {
+            false
+        }
+
+        // Bubble harus SELALU tampil, termasuk saat izin rekam layar berhasil.
+        // Sebelumnya overlay hanya dipasang pada jalur gagal sehingga bubble
+        // tidak pernah muncul dan layar tidak bisa diterjemahkan.
+        if (!overlay.show()) {
+            // Izin "tampil di atas aplikasi lain" tidak berlaku lagi.
+            FloatingTranslate.isRunning = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (resultCode == Activity.RESULT_OK && data != null && !bound) {
+            overlay.setStatus(
+                "Izin rekam layar gagal dipakai. Ketuk bubble untuk mencoba lagi.",
+                true
+            )
         } else if (capture == null) {
             // Service dijalankan ulang tanpa izin (mis. setelah proses dibunuh).
-            overlay.show()
             overlay.setStatus(
                 "Izin rekam layar belum ada. Ketuk bubble untuk menyambung ulang.",
                 true
             )
-        } else {
-            overlay.show()
         }
 
         // START_STICKY: bila sistem membunuh service, bubble kembali muncul
@@ -190,13 +200,8 @@ class FloatingTranslateService : Service() {
 
         if (result.bubbles.isEmpty()) {
             overlay.setStatus(
-                if (result.detectedBubbles == 0) {
-                    "Teks terbaca, tetapi tidak ada balon yang bisa ditempel ($info). " +
-                        "Coba perbesar halaman sampai teks lebih jelas."
-                } else {
-                    "Balon terdeteksi tetapi terjemahan tidak berubah ($info). " +
-                        "Model bahasa mungkin belum terunduh — sambungkan internet lalu ketuk lagi."
-                },
+                "Teks terbaca, tetapi terjemahan tidak berubah ($info). " +
+                    "Model bahasa mungkin belum terunduh — sambungkan internet lalu ketuk lagi.",
                 true
             )
             return

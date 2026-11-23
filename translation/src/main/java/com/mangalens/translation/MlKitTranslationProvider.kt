@@ -47,7 +47,12 @@ class MlKitTranslationProvider(
         return try {
             for (request in requests) {
                 val text = request.text.trim()
-                results[request.id] = if (text.isEmpty()) "" else translator.translate(text).awaitResult()
+                results[request.id] = if (text.isEmpty()) {
+                    ""
+                } else {
+                    // ML Kit memakai ragam formal; lembutkan agar cocok untuk dialog.
+                    IndonesianStyle.casual(translator.translate(text).awaitResult())
+                }
             }
             TranslateResult.Success(results)
         } catch (t: Throwable) {

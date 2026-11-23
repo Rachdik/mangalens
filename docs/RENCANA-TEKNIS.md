@@ -563,3 +563,105 @@ karena tidak ada device yang tersambung ke agen.
 
 APK: `dist/MangaLens-tahap6-arm64-debug.apk` (36.597.437 byte, SHA-256
 `e940948ef848c7c500f2e12ae258b0a9e30e854bede9f4a90a904be05894d154`).
+
+## 18. Tahap 7 — bubble benar-benar muncul & terjemahan seluruh layar
+
+**Gejala yang dilaporkan:** bubble tidak muncul sama sekali, baik di MangaLens maupun di aplikasi
+lain, dan mengetuk tidak menghasilkan terjemahan apa pun.
+
+**Akar masalah (bug nyata):** `FloatingTranslateService.onStartCommand()` hanya memanggil
+`overlay.show()` pada jalur **gagal** (izin rekam layar gagal / belum ada). Saat pengguna menyetujui
+izin rekam layar — jalur normal — `bindProjection()` berhasil tetapi overlay tidak pernah dipasang.
+Akibatnya tidak ada bubble untuk diketuk, tidak ada panel status, dan seluruh fitur tampak mati.
+Bug ini tidak terlihat dari build karena hanya muncul saat runtime.
+
+**Perbaikan:**
+
+1. `overlay.show()` sekarang dipanggil **selalu** setelah service siap. `BubbleOverlay.show()`
+   mengembalikan `Boolean`; bila pemasangan gagal (izin "tampil di atas aplikasi lain" dicabut),
+   service menghentikan dirinya dan `FloatingTranslate.isRunning` kembali `false`, bukan diam saja.
+   Kegagalan juga ditulis ke Logcat dengan tag `MangaLensOverlay`.
+2. Terjemahan tidak lagi bergantung pada deteksi balon. `MangaPageTranslator` menyusun daftar
+   *region*: setiap balon yang terdeteksi, **ditambah setiap blok OCR yang tidak tercakup balon**
+   (kotak narasi, teks di luar kotak, tulisan pada gambar). Blok bebas memakai warna latar di
+   sekitarnya lewat `BubbleDetector.surroundings()` (histogram warna cincin + teks hitam/putih sesuai
+   kecerahan), lalu ditempel pada kotak blok itu sendiri dengan padding 18% tinggi huruf.
+   Batas 40 region per ketukan.
+3. `MlKitOcrEngine` mode `AUTO` mencoba Latin lebih dulu; bila hasilnya < 40 karakter, recognizer
+   Jepang, Korea, dan Tionghoa semuanya dicoba dan hasil dengan teks terbanyak yang dipakai. Halaman
+   berhuruf Latin tetap hanya satu pass, jadi tidak melambat.
+4. Pesan status disederhanakan: bila ada teks tetapi tidak ada hasil, penyebabnya model belum
+   terunduh, bukan "balon tidak ditemukan".
+
+**Yang berfungsi (terverifikasi build):** bubble sekarang dipasang pada jalur normal, ketukan
+memicu tangkap layar → OCR → terjemahan semua teks → tempelan di posisinya.
+
+**Belum terverifikasi:** seluruh perilaku runtime tetap belum diuji di perangkat (tidak ada device
+yang tersambung ke agen). Bila bubble tetap tidak muncul di Realme GT Neo 3, periksa izin
+"Tampilkan di atas aplikasi lain" untuk MangaLens dan Logcat tag `MangaLensOverlay`.
+
+APK: `dist/MangaLens-tahap7-arm64-debug.apk` (36.625.806 byte, SHA-256
+`cd253d52b61c71feb14f767cdbbeba7b8a13eea9d3177354c2899e0cb3f8d850`).
+
+## 19. Uji langsung di Realme GT Neo 3 (RMX3561, Android 14)
+
+Pengujian dilakukan lewat adb pada perangkat fisik, bukan emulator. APK debug dipasang, izin
+"tampil di atas aplikasi lain" sudah aktif, lalu bubble diaktifkan dari layar utama.
+
+**Hasil yang terverifikasi di perangkat:**
+
+1. Bubble "訳" benar-benar muncul setelah izin rekam layar disetujui (bug tahap 7 terbukti beres).
+   Notifikasi "Bubble aktif di semua aplikasi" tampil.
+2. Ketukan pada bubble menangkap layar, menjalankan OCR + terjemahan, lalu menempelkan teks
+   Indonesia di balon. Teruji pada aplikasi lain (Google Photos menampilkan halaman manga), jadi
+   fitur tidak bergantung pada MangaLens.
+3. Ketukan kedua menghapus semua tempelan dan menampilkan panel "Terjemahan dihapus..."; tidak ada
+   crash (Logcat bersih dari `FATAL EXCEPTION` dan `MangaLensOverlay`).
+4. Perbaikan pengelompokan berbasis garis tepi bekerja: sebelumnya tiga balon bersebelahan
+   ("SHUT UP, UGGO!!" / "DON'T WORRY..." / "STOP TALKING...") digabung menjadi satu kotak besar;
+   sekarang masing-masing mendapat tempelan sendiri.
+5. Resolusi OCR dinaikkan (frame layar tidak lagi diperkecil ke 1600 px) sehingga teks balon yang
+   kecil lebih akurat terbaca. Masih ada salah baca pada teks yang sangat kecil/blur, mis.
+   "YOU GOT ANY SIBLINGS?" → "Anda punya Anw Sib ling62"; ini keterbatasan OCR, bukan bug alur.
+6. Tempelan yang teksnya panjang otomatis meninggi sampai 1.6× tinggi balon agar tidak terpotong.
+
+**Catatan hasil uji:** kualitas terjemahan mengikuti kualitas OCR. Pada halaman yang ditampilkan
+seukuran layar penuh (teks ±8–10 px), sebagian kalimat masih salah baca; membaca dengan zoom lebih
+besar di aplikasi baca memberi hasil jauh lebih baik.
+
+APK hasil uji: `dist/MangaLens-tahap8-arm64-debug.apk` (36.626.334 byte, SHA-256
+`762f7fc664e9ddf030f7133417a69e823acd988ad4d5f9b4fe699612d03b0bdd`).
+
+## 20. Tempelan lebih kecil & bahasa tidak baku
+
+**Keluhan:** terjemahan terlalu baku, dan beberapa tempelan begitu besar sampai menutupi satu layar
+sehingga mengganggu saat membaca.
+
+**Perubahan:**
+
+1. `TranslatedBubble` kini membawa `textBounds` (kotak teks asli) selain `bounds` (balon penuh).
+   `BubbleOverlay` memakai `textBounds` + padding 12% tinggi sebagai ukuran tempelan, bukan seluruh
+   balon. Gambar di sekitar balon jadi tetap terlihat.
+2. Batas keras ukuran satu tempelan: lebar maksimum 90% layar, tinggi maksimum 28% layar. Bila teks
+   masih terpotong, tinggi boleh bertambah sampai 1.8× tinggi kotak teks (tetap dibatasi 32% layar).
+   Jadi satu tempelan tidak mungkin lagi menutupi satu layar.
+3. Lebar tempelan diberi tambahan 20% karena bahasa Indonesia umumnya lebih panjang dari teks
+   aslinya; ini mengurangi baris pendek yang terpotong.
+4. Ukuran huruf maksimum diturunkan dari 26sp ke 20sp.
+5. `translation/IndonesianStyle.kt` baru: penggantian ragam formal → santai pada hasil ML Kit
+   (`Anda`→`kamu`, `saya`→`aku`, `apakah`→`apa`, `bagaimana`→`gimana`, `mengapa`→`kenapa`,
+   `ingin`→`mau`, `dapat`→`bisa`, `tersebut`/`merupakan`→`itu`, `namun`/`tetapi`→`tapi`,
+   `ketika`→`waktu`, `sehingga`→`jadi`, `saat ini`→`sekarang`). Hanya kata yang maknanya tidak
+   berubah, supaya tata bahasa tetap benar.
+
+**Hasil uji di perangkat (Realme GT Neo 3):** tempelan kini seukuran teks balon, tidak ada lagi blok
+raksasa yang menutupi satu layar; contoh "Ibu aku meninggal karena sakit waktu aku masih sangat
+mengupayakan." menggantikan "MY MOTHER PASSED AWAY…" di dalam balonnya. Penggantian ragam formal
+terlihat pada hasil (`Anda` → `kamu`, `saya` → `aku`).
+
+**Batasan:** kecanggihan bahasa tetap dibatasi model ML Kit on-device; kalimat yang salah baca OCR
+akan tetap salah terjemah. Terjemahan yang benar-benar luwes memerlukan model bahasa (LLM) dengan
+kunci API, yang belum dipasang.
+
+APK: `dist/MangaLens-tahap9-arm64-debug.apk` (36.626.701 byte, SHA-256
+`b6d5e6157dcaefba2779cd7f9c238a7741b4c1b4bd3aa2844e4d1ce1c6959a06`).

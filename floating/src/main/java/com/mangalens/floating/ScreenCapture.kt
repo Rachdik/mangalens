@@ -241,7 +241,9 @@ class ScreenCapture(
         const val FIRST_FRAME_DELAY_MS = 200L
         const val FRESH_FRAME_DELAY_MS = 60L
         const val CAPTURE_TIMEOUT_MS = 4_000L
-        const val MAX_OCR_DIMENSION = 1600
+        // Jangan memperkecil layar ponsel: teks balon manga kecil, dan
+        // pengecilan ke 1600 px membuat banyak huruf salah terbaca.
+        const val MAX_OCR_DIMENSION = 2400
         const val GRID = 16
     }
 }

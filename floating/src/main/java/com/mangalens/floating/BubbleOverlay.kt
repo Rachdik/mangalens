@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
@@ -22,6 +23,7 @@ import androidx.core.widget.TextViewCompat
 import com.mangalens.inpainting.TranslatedBubble
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Bubble melayang, teks terjemahan yang ditempel di atas balon asli, dan
@@ -64,8 +66,9 @@ class BubbleOverlay(
     private val handler = Handler(Looper.getMainLooper())
     private val hidePanelTask = Runnable { hidePanel() }
 
-    fun show() {
-        if (bubbleAttached) return
+    /** @return true bila bubble benar-benar terpasang di layar. */
+    fun show(): Boolean {
+        if (bubbleAttached) return true
         val view = TextView(context).apply {
             text = "訳"
             setTextColor(Color.WHITE)
@@ -93,11 +96,16 @@ class BubbleOverlay(
 
         attachTouch(view, params)
 
-        runCatching {
+        return runCatching {
             windowManager.addView(view, params)
             bubble = view
             bubbleParams = params
             bubbleAttached = true
+            true
+        }.getOrElse { error ->
+            // Biasanya izin "tampil di atas aplikasi lain" dicabut/ditolak.
+            Log.w(TAG, "Bubble gagal dipasang", error)
+            false
         }
     }
 
@@ -194,16 +202,29 @@ class BubbleOverlay(
             val text = bubble.targetText.trim()
             if (text.isEmpty()) continue
 
-            // Koordinat frame tangkapan -> koordinat layar, lalu dijepit agar
-            // tempelan tidak keluar layar (mis. balon di tepi kanan).
-            val left = (bubble.bounds.left / scale).toInt()
+            // Tempelan dibuat seukuran kotak teks aslinya, bukan seluruh balon,
+            // supaya gambar di sekitar balon tetap terlihat. Padding kecil
+            // hanya untuk menutup huruf asli.
+            val textRect = bubble.textBounds
+            if (textRect.width() <= 0 || textRect.height() <= 0) continue
+            // Padding cukup untuk menutup huruf asli sampai tepinya; kotak OCR
+            // kadang lebih ketat dari bentuk huruf sebenarnya.
+            val pad = (textRect.height() * 0.12f).toInt().coerceIn(3, 12)
+            // Bahasa Indonesia umumnya lebih panjang dari teks aslinya, jadi
+            // kotak diberi ruang horizontal ekstra agar tidak terpecah menjadi
+            // baris-baris pendek yang sulit dibaca.
+            val extraWidth = (textRect.width() * 0.20f).toInt()
+
+            val left = ((textRect.left - pad - extraWidth / 2) / scale).toInt()
                 .coerceIn(0, max(0, screenWidth - MIN_TRANSLATION_WIDTH))
-            val top = (bubble.bounds.top / scale).toInt()
+            val top = ((textRect.top - pad) / scale).toInt()
                 .coerceIn(0, max(0, screenHeight - MIN_TRANSLATION_HEIGHT))
-            val width = (bubble.bounds.width() / scale).toInt()
+            val width = ((textRect.width() + pad * 2 + extraWidth) / scale).toInt()
                 .coerceAtMost(screenWidth - left)
-            val height = (bubble.bounds.height() / scale).toInt()
+                .coerceAtMost((screenWidth * MAX_WIDTH_FRACTION).toInt())
+            val height = ((textRect.height() * 1.10f + pad * 2) / scale).toInt()
                 .coerceAtMost(screenHeight - top)
+                .coerceAtMost((screenHeight * MAX_HEIGHT_FRACTION).toInt())
             if (width < MIN_TRANSLATION_WIDTH || height < MIN_TRANSLATION_HEIGHT) continue
 
             val view = TextView(context).apply {
@@ -251,6 +272,22 @@ class BubbleOverlay(
             if (attached) {
                 translationViews += view
                 shown++
+                // Teks Indonesia sering lebih panjang dari aslinya. Bila masih
+                // terpotong setelah auto-size, tinggikan tempelan (maks 1.6×)
+                // supaya kalimatnya terbaca utuh.
+                view.post {
+                    val layout = view.layout ?: return@post
+                    val needed = layout.height + view.paddingTop + view.paddingBottom
+                    if (needed > view.height + dp(2)) {
+                        val grown = min(needed, (height * 1.8f).toInt())
+                            .coerceAtMost(screenHeight - top)
+                            .coerceAtMost((screenHeight * 0.32f).toInt())
+                        if (grown > view.height) {
+                            params.height = grown
+                            runCatching { windowManager.updateViewLayout(view, params) }
+                        }
+                    }
+                }
             }
         }
         return shown
@@ -465,10 +502,15 @@ class BubbleOverlay(
     private fun dp(value: Int): Int = (value * density).toInt()
 
     private companion object {
+        const val TAG = "MangaLensOverlay"
         const val MAX_TRANSLATIONS = 40
         const val MIN_TRANSLATION_WIDTH = 30
         const val MIN_TRANSLATION_HEIGHT = 16
         const val MIN_TEXT_SP = 6
-        const val MAX_TEXT_SP = 26
+        const val MAX_TEXT_SP = 20
+
+        /** Batas ukuran satu tempelan agar tidak pernah menutupi satu layar. */
+        const val MAX_WIDTH_FRACTION = 0.9f
+        const val MAX_HEIGHT_FRACTION = 0.28f
     }
 }

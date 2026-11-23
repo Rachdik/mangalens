@@ -4,15 +4,21 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.OcrEngine
+import com.mangalens.ocr.RecognizedBlock
 import com.mangalens.ocr.ScriptDetector
 import com.mangalens.translation.MlKitTranslationProvider
 import com.mangalens.translation.TranslateResult
 import com.mangalens.translation.TranslationProvider
 import com.mangalens.translation.TranslationRequest
+import kotlin.math.max
+import kotlin.math.min
 
 /** Hasil terjemahan satu balon, lengkap dengan posisi & warna balon aslinya. */
 data class TranslatedBubble(
+    /** Area balon penuh; dipakai sebagai batas luar tempelan. */
     val bounds: Rect,
+    /** Area teks asli; tempelan dibuat seukuran ini agar tidak menutupi gambar. */
+    val textBounds: Rect,
     val sourceText: String,
     val targetText: String,
     val fillColor: Int,
@@ -31,7 +37,13 @@ data class PageTranslation(
 )
 
 /**
- * Alur terjemahan satu halaman manga: OCR -> deteksi balon -> terjemahkan.
+ * Alur terjemahan satu layar: OCR -> deteksi balon -> terjemahkan.
+ *
+ * Semua teks yang terbaca diterjemahkan, bukan hanya yang berada di dalam
+ * balon: blok yang tidak terdeteksi sebagai balon (kotak narasi, tulisan di
+ * luar kotak, teks pada gambar) tetap diterjemahkan dan ditempel pada posisi
+ * bloknya sendiri. Dengan begitu satu ketukan menerjemahkan apa pun yang ada
+ * di layar.
  *
  * Bahasa sumber ditentukan dari teks yang benar-benar terbaca, bukan dari
  * pilihan pengguna, karena pilihan yang salah (mis. "Jepang" pada komik
@@ -54,12 +66,24 @@ class MangaPageTranslator(
             return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script))
         }
 
-        val joined = blocks.joinToString(" ") { it.text }
+        // Blok tanpa huruf/angka yang cukup (garis, titik, nomor halaman)
+        // bukan dialog dan hanya menambah derau.
+        val usable = blocks.filter {
+            it.text.count { ch -> ch.isLetterOrDigit() } >= 2 &&
+                it.bounds.width() > 2 &&
+                it.bounds.height() > 2
+        }
+        if (usable.isEmpty()) {
+            return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script))
+        }
+
+        val joined = usable.joinToString(" ") { it.text }
         val tag = ScriptDetector.languageTagOf(joined)
 
-        val bubbles = BubbleDetector.detect(bitmap, blocks)
-        if (bubbles.isEmpty()) {
-            return PageTranslation(emptyList(), blocks.size, 0, tag)
+        val bubbles = BubbleDetector.detect(bitmap, usable)
+        val regions = buildRegions(bitmap, usable, bubbles)
+        if (regions.isEmpty()) {
+            return PageTranslation(emptyList(), usable.size, bubbles.size, tag)
         }
 
         val translationProvider = providerFor(tag)
@@ -70,31 +94,90 @@ class MangaPageTranslator(
             )
         }
 
-        val requests = bubbles.mapIndexed { index, bubble ->
-            TranslationRequest(index.toString(), bubble.text)
+        val requests = regions.mapIndexed { index, region ->
+            TranslationRequest(index.toString(), region.text)
         }
 
         return when (val result = translationProvider.translate(requests)) {
             is TranslateResult.Success -> {
-                val translated = bubbles.mapIndexedNotNull { index, bubble ->
+                val translated = regions.mapIndexedNotNull { index, region ->
                     val target = result.texts[index.toString()]?.trim().orEmpty()
-                    if (target.isEmpty() || target.equals(bubble.text, ignoreCase = true)) {
+                    if (target.isEmpty() || target.equals(region.text, ignoreCase = true)) {
                         null
                     } else {
                         TranslatedBubble(
-                            bounds = bubble.bubbleBounds,
-                            sourceText = bubble.text,
+                            bounds = region.bounds,
+                            textBounds = region.textBounds,
+                            sourceText = region.text,
                             targetText = target,
-                            fillColor = bubble.fillColor,
-                            textColor = bubble.textColor
+                            fillColor = region.fillColor,
+                            textColor = region.textColor
                         )
                     }
                 }
-                PageTranslation(translated, blocks.size, bubbles.size, tag)
+                PageTranslation(translated, usable.size, bubbles.size, tag)
             }
 
             is TranslateResult.Failure -> throw IllegalStateException(result.message)
         }
+    }
+
+    /**
+     * Gabungkan balon hasil deteksi dengan blok OCR yang tidak tercakup balon.
+     * Blok bebas memakai warna latar di sekitarnya agar tempelan menyatu dengan
+     * gambar aslinya.
+     */
+    private fun buildRegions(
+        bitmap: Bitmap,
+        blocks: List<RecognizedBlock>,
+        bubbles: List<DetectedBubble>
+    ): List<Region> {
+        val regions = bubbles
+            .map {
+                Region(
+                    bounds = it.bubbleBounds,
+                    textBounds = it.textBounds,
+                    text = it.text,
+                    fillColor = it.fillColor,
+                    textColor = it.textColor
+                )
+            }
+            .toMutableList()
+        val bubbleTextBounds = bubbles.map { it.textBounds }
+
+        for (block in blocks) {
+            val text = block.text.trim()
+            if (text.isEmpty()) continue
+            val insideBubble = bubbleTextBounds.any { overlapFraction(block.bounds, it) >= 0.5f }
+            if (insideBubble) continue
+
+            val bounds = padBlock(block.bounds, bitmap.width, bitmap.height)
+            val (fill, textColor) = BubbleDetector.surroundings(bitmap, block.bounds)
+            regions += Region(bounds, block.bounds, text, fill, textColor)
+        }
+
+        return regions
+            .sortedWith(compareBy({ it.bounds.top }, { it.bounds.left }))
+            .take(MAX_REGIONS)
+    }
+
+    private fun overlapFraction(block: Rect, cover: Rect): Float {
+        val width = min(block.right, cover.right) - max(block.left, cover.left)
+        val height = min(block.bottom, cover.bottom) - max(block.top, cover.top)
+        if (width <= 0 || height <= 0) return 0f
+        val area = block.width() * block.height()
+        if (area <= 0) return 0f
+        return (width * height).toFloat() / area
+    }
+
+    private fun padBlock(rect: Rect, width: Int, height: Int): Rect {
+        val pad = (rect.height() * 0.18f).toInt().coerceIn(4, 18)
+        return Rect(
+            (rect.left - pad).coerceAtLeast(0),
+            (rect.top - pad).coerceAtLeast(0),
+            (rect.right + pad).coerceAtMost(width),
+            (rect.bottom + pad).coerceAtMost(height)
+        )
     }
 
     private fun providerFor(tag: String): TranslationProvider {
@@ -112,5 +195,17 @@ class MangaPageTranslator(
         (provider as? MlKitTranslationProvider)?.close()
         provider = null
         providerTag = null
+    }
+
+    private data class Region(
+        val bounds: Rect,
+        val textBounds: Rect,
+        val text: String,
+        val fillColor: Int,
+        val textColor: Int
+    )
+
+    private companion object {
+        const val MAX_REGIONS = 40
     }
 }
