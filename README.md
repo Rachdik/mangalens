@@ -32,17 +32,28 @@ Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk A
 
 ## Unduh APK
 
+### Otomatis (jika tersedia)
+
 Semua build pengujian tersedia di halaman release:
 
-**https://github.com/Rachdik/mangalens/releases/tag/apk-testing**
+**https://github.com/Rachdik/mangalens/releases**
 
-Versi terbaru: **[MangaLens-tahap12-arm64-debug.apk](https://github.com/Rachdik/mangalens/releases/download/apk-testing/MangaLens-tahap12-arm64-debug.apk)**
+### Manual upload APK
+
+Jika belum ada release, Anda bisa mengunduh APK dari folder `releases/` di repository ini
+setelah commit berikutnya dipush. Atau gunakan GitHub Releases:
+
+1. Buka https://github.com/Rachdik/mangalens/releases/new
+2. Buat tag version (mis. `v0.1.0`)
+3. Upload file APK dari folder `releases/` (MangaLens-YYYYMMDD-arm64-debug.apk)
+4. Publish release
 
 Catatan:
 
-- APK tahap4 ke atas hanya untuk **arm64-v8a**; tahap3 adalah APK universal.
-- Semua build masih **debug** (belum ditandatangani untuk rilis).
+- APK di folder `releases/` adalah debug build (belum ditandatangani untuk rilis).
 - Package `com.mangalens.app` — uninstall versi lama sebelum memasang versi lain.
+- File APK tidak di-commit ke repository karena ukuran besar; Anda harus upload manual
+  melalui GitHub Releases atau git push dengan -f setelah mengubah .gitignore.
 
 ## Cara memakai penerjemah layar
 
