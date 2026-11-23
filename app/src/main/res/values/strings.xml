@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MangaLens</string>
+    <string name="home_subtitle">Tempel URL manga, manhwa, atau manhua untuk membuka reader internal.</string>
+    <string name="url_hint">https://contoh.com/chapter-1</string>
+    <string name="open">Buka</string>
+    <string name="history_title">Riwayat</string>
+    <string name="clear_history">Hapus</string>
+    <string name="empty_history">Belum ada riwayat bacaan.</string>
+    <string name="invalid_url">URL tidak valid. Gunakan alamat http atau https yang benar.</string>
+</resources>

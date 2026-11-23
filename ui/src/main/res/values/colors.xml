@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mangalens_primary">#1F6FEB</color>
+    <color name="mangalens_primary_dark">#1548A6</color>
+    <color name="mangalens_accent">#FF7A45</color>
+    <color name="mangalens_surface">#FFFDFBFA</color>
+    <color name="mangalens_on_surface">#1B1B1F</color>
+    <color name="mangalens_muted">#6B6B73</color>
+    <color name="mangalens_error">#B3261E</color>
+</resources>
