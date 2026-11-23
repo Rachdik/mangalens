@@ -421,7 +421,7 @@ tategaki, patch-based inpainting, OEM background service).
 | Tahap | Status | Bukti |
 |---|---|---|
 | 1 Audit | selesai | laporan audit |
-| 2 Scaffold + URL/WebView | scaffold & build selesai | `./gradlew :app:assembleDebug` BUILD SUCCESSFUL; uji jalan di emulator dicatat di laporan tahap |
+| 2 Scaffold + URL/WebView | scaffold & build selesai; **belum diuji jalan** | `./gradlew :app:assembleDebug` BUILD SUCCESSFUL, `app-debug.apk` 3,6 MB. Uji runtime emulator belum selesai (emulator tidak selesai boot dan dihentikan), jadi belum ada bukti aplikasi berjalan tanpa crash |
 | 3–10 | belum | — |
 
 Modul yang benar-benar ada di `settings.gradle.kts`: `app, core, ui, storage, reader, floating, ocr,
