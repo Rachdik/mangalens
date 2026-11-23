@@ -2,6 +2,7 @@ package com.mangalens.inpainting
 
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.graphics.Color
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.OcrEngine
 import com.mangalens.ocr.RecognizedBlock
@@ -10,6 +11,7 @@ import com.mangalens.translation.MlKitTranslationProvider
 import com.mangalens.translation.TranslateResult
 import com.mangalens.translation.TranslationProvider
 import com.mangalens.translation.TranslationRequest
+import com.mangalens.inpainting.InpaintingEngine
 import kotlin.math.max
 import kotlin.math.min
 
@@ -204,6 +206,44 @@ class MangaPageTranslator(
         providerKey = key
         return created
     }
+
+    suspend fun translateWithInpaint(
+        bitmap: Bitmap,
+        script: LanguageScript,
+        inpaintingEngine: InpaintingEngine,
+        sourceTag: String = "auto",
+        targetTag: String = "id"
+    ): Pair<Bitmap, PageTranslation> {
+        val result = translate(bitmap, script, sourceTag, targetTag)
+        if (result.bubbles.isEmpty()) {
+            return Pair(bitmap.copy(Bitmap.Config.ARGB_8888, true), result)
+        }
+        val mask = createMask(bitmap.width, bitmap.height, result.bubbles.map { it.textBounds })
+        val inpainted = inpaintingEngine.inpaint(bitmap, mask)
+        return Pair(inpainted, result)
+    }
+
+    private fun createMask(width: Int, height: Int, textBounds: List<Rect>): Bitmap {
+        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(width * height)
+        for (i in pixels.indices) pixels[i] = Color.BLACK
+        for (rect in textBounds) paintRect(pixels, width, height, rect, Color.WHITE)
+        mask.setPixels(pixels, 0, width, 0, 0, width, height)
+        return mask
+    }
+
+    private fun paintRect(pixels: IntArray, width: Int, height: Int, rect: Rect, color: Int) {
+        var y = rect.top
+        while (y < rect.bottom) {
+            var x = rect.left
+            while (x < rect.right) {
+                if (x >= 0 && x < width && y >= 0 && y < height) pixels[y * width + x] = color
+                x++
+            }
+            y++
+        }
+    }
+
 
     fun close() {
         (provider as? MlKitTranslationProvider)?.close()
