@@ -1,17 +1,79 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Tema dipaksa terang: warna permukaan aplikasi selalu terang, sehingga
-         teks tidak boleh mengikuti mode gelap perangkat (dulu jadi putih di
-         atas latar putih). -->
-    <style name="Theme.MangaLens" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="colorPrimary">@color/mangalens_primary</item>
-        <item name="colorPrimaryDark">@color/mangalens_primary_dark</item>
-        <item name="colorAccent">@color/mangalens_accent</item>
+
+    <!--
+      Semua tema turunan memakai atribut, bukan warna langsung, sehingga
+      mengganti aksen cukup dengan memilih style lain. Nilai netral
+      (window/card/on_surface/muted) punya varian di values-night.
+    -->
+    <style name="Theme.MangaLens.Base" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent_purple</item>
+        <item name="colorPrimaryDark">@color/accent_purple_dark</item>
+        <item name="colorAccent">@color/accent_purple</item>
+        <item name="colorPrimaryLight">@color/accent_purple_light</item>
         <item name="android:windowBackground">@color/mangalens_window</item>
-        <item name="android:statusBarColor">@color/mangalens_primary_dark</item>
         <item name="android:navigationBarColor">@color/mangalens_window</item>
-        <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/mangalens_on_surface</item>
         <item name="android:textColorSecondary">@color/mangalens_muted</item>
+        <item name="android:textColorHint">@color/mangalens_muted</item>
     </style>
+
+    <style name="Theme.MangaLens.Purple" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_purple</item>
+        <item name="colorPrimaryDark">@color/accent_purple_dark</item>
+        <item name="colorAccent">@color/accent_purple</item>
+        <item name="colorPrimaryLight">@color/accent_purple_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Blue" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_blue</item>
+        <item name="colorPrimaryDark">@color/accent_blue_dark</item>
+        <item name="colorAccent">@color/accent_blue</item>
+        <item name="colorPrimaryLight">@color/accent_blue_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Cyan" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_cyan</item>
+        <item name="colorPrimaryDark">@color/accent_cyan_dark</item>
+        <item name="colorAccent">@color/accent_cyan</item>
+        <item name="colorPrimaryLight">@color/accent_cyan_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Green" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_green</item>
+        <item name="colorPrimaryDark">@color/accent_green_dark</item>
+        <item name="colorAccent">@color/accent_green</item>
+        <item name="colorPrimaryLight">@color/accent_green_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Red" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_red</item>
+        <item name="colorPrimaryDark">@color/accent_red_dark</item>
+        <item name="colorAccent">@color/accent_red</item>
+        <item name="colorPrimaryLight">@color/accent_red_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Orange" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_orange</item>
+        <item name="colorPrimaryDark">@color/accent_orange_dark</item>
+        <item name="colorAccent">@color/accent_orange</item>
+        <item name="colorPrimaryLight">@color/accent_orange_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Pink" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_pink</item>
+        <item name="colorPrimaryDark">@color/accent_pink_dark</item>
+        <item name="colorAccent">@color/accent_pink</item>
+        <item name="colorPrimaryLight">@color/accent_pink_light</item>
+    </style>
+
+    <style name="Theme.MangaLens.Teal" parent="Theme.MangaLens.Base">
+        <item name="colorPrimary">@color/accent_teal</item>
+        <item name="colorPrimaryDark">@color/accent_teal_dark</item>
+        <item name="colorAccent">@color/accent_teal</item>
+        <item name="colorPrimaryLight">@color/accent_teal_light</item>
+    </style>
+
+    <!-- Tema default aplikasi (dipakai manifest sebelum tema pilihan diterapkan). -->
+    <style name="Theme.MangaLens" parent="Theme.MangaLens.Purple" />
 </resources>

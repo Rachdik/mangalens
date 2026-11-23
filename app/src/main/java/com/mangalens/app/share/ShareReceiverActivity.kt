@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.mangalens.app.databinding.ActivityMainBinding
 import com.mangalens.core.di.Dependencies
@@ -14,10 +13,6 @@ import com.mangalens.inpainting.MangaPageTranslator
 import com.mangalens.inpainting.PageTranslation
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.MlKitOcrEngine
-import com.mangalens.translation.LlmTranslationProvider
-import com.mangalens.translation.MlKitTranslationProvider
-import com.mangalens.translation.MyMemoryTranslationProvider
-import com.mangalens.translation.TranslationBackend
 import com.mangalens.translation.TranslationSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +32,7 @@ import kotlin.math.max
  * Kepemilikan bitmap: [pendingBitmap] selalu di-recycle di blok finally,
  * termasuk saat decoding/terjemahan gagal, agar tidak menahan memori.
  */
-class ShareReceiverActivity : AppCompatActivity() {
+class ShareReceiverActivity : com.mangalens.app.ThemedActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var translationSettings: TranslationSettings
@@ -134,20 +129,22 @@ class ShareReceiverActivity : AppCompatActivity() {
     private fun handleFileUri(uri: Uri) {
         val path = uri.path
         if (path.isNullOrBlank()) {
-            toast("File tidak ditemukan")
+            toast(FILE_UNREADABLE)
             finish()
             return
         }
         val file = File(path)
         if (!file.exists() || !file.isFile) {
-            toast("File tidak ditemukan")
+            // Path mentah di luar direktori aplikasi tidak bisa dibaca tanpa izin
+            // penyimpanan; arahkan ke jalur content:// yang aman.
+            toast(FILE_UNREADABLE)
             finish()
             return
         }
         lifecycleScope.launch {
             val bitmap = withContext(Dispatchers.IO) { decodeBounded(file.absolutePath) }
             if (bitmap == null) {
-                toast("Tidak bisa membaca file gambar")
+                toast(FILE_UNREADABLE)
                 finish()
             } else {
                 processBitmap(bitmap)
@@ -179,6 +176,10 @@ class ShareReceiverActivity : AppCompatActivity() {
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
         BitmapFactory.decodeFile(path, options)
+    }.onFailure { error ->
+        // Hanya jenis error yang dicatat; path dan isi file tidak pernah ditulis
+        // ke Logcat.
+        android.util.Log.w("ShareReceiver", "decode file gagal: ${error.javaClass.simpleName}")
     }.getOrNull()
 
     private fun decodeBounded(uri: Uri): Bitmap? {
@@ -191,8 +192,10 @@ class ShareReceiverActivity : AppCompatActivity() {
             }
             open(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
         } catch (e: SecurityException) {
+            android.util.Log.w("ShareReceiver", "akses URI ditolak: ${e.javaClass.simpleName}")
             null
         } catch (e: Exception) {
+            android.util.Log.w("ShareReceiver", "decode URI gagal: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -228,11 +231,11 @@ class ShareReceiverActivity : AppCompatActivity() {
                     val translator = MangaPageTranslator(
                         ocr = MlKitOcrEngine(),
                         providerFactory = { source, target ->
-                            when (translationSettings.backend) {
-                                TranslationBackend.ML_KIT -> MlKitTranslationProvider(source, target)
-                                TranslationBackend.LLM -> LlmTranslationProvider(source, target)
-                                TranslationBackend.MY_MEMORY -> MyMemoryTranslationProvider(source, target)
-                            }
+                            // Factory yang sama dipakai Reader: satu implementasi OCR
+                            // + terjemahan untuk kedua jalur masuk.
+                            com.mangalens.translation.TranslationProviders.create(
+                                translationSettings.backend, source, target
+                            )
                         }
                     )
                     try {
@@ -330,5 +333,14 @@ class ShareReceiverActivity : AppCompatActivity() {
 
     private companion object {
         const val MAX_DIMENSION = 2200
+
+        /**
+         * file:// menunjuk path mentah. Sejak Android 7 aplikasi pengirim tidak
+         * boleh membagikannya (FileUriExposedException) dan tanpa izin penyimpanan
+         * MangaLens juga tidak bisa membacanya, jadi arahkan ke content://.
+         */
+        const val FILE_UNREADABLE =
+            "File gambar tidak bisa dibaca. Bagikan lewat Galeri atau browser " +
+                "(content://) alih-alih file://."
     }
 }

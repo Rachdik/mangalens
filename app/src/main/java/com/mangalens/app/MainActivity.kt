@@ -15,7 +15,14 @@ import android.widget.AdapterView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
+import android.graphics.drawable.GradientDrawable
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.mangalens.core.theme.AccentTheme
+import com.mangalens.core.theme.ThemeMode
+import com.mangalens.core.theme.ThemeStore
+import com.mangalens.ui.theme.MangaLensTheme
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -30,7 +37,7 @@ import com.mangalens.translation.TranslationBackend
 import com.mangalens.translation.TranslationSettings
 import kotlinx.coroutines.launch
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ThemedActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var historyAdapter: HistoryAdapter
@@ -85,6 +92,7 @@ class MainActivity : AppCompatActivity() {
         translationSettings = TranslationSettings(this)
         setupProviderSpinner()
         setupLanguageSpinners()
+        setupAppearance()
 
         historyAdapter = HistoryAdapter { entry -> openReader(entry.url) }
         binding.historyList.apply {
@@ -355,5 +363,111 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         val URL_PATTERN = Regex("""https?://\S+""")
+    }
+
+    // ---------------------------------------------------------------------
+    // Tampilan: watermark versi + pemilihan warna/mode
+    // ---------------------------------------------------------------------
+
+    private fun setupAppearance() {
+        // Versi diambil dari BuildConfig (versionName Gradle) — tidak pernah
+        // ditulis manual, jadi watermark selalu sama dengan APK yang berjalan.
+        binding.watermark.text = getString(R.string.version_watermark, BuildConfig.VERSION_NAME)
+        renderAppearance()
+    }
+
+    private fun renderAppearance() {
+        val accent = ThemeStore.accent
+        val mode = ThemeStore.mode
+        binding.themeSummary.text = getString(R.string.appearance_summary, accent.label, mode.label)
+
+        binding.accentRow.removeAllViews()
+        for (option in AccentTheme.values()) {
+            binding.accentRow.addView(buildAccentDot(option, option == accent))
+        }
+
+        binding.modeRow.removeAllViews()
+        for (option in ThemeMode.values()) {
+            binding.modeRow.addView(buildModeChip(option, option == mode))
+        }
+    }
+
+    /** Swatch bulat sebagai pratinjau warna sebelum dipilih. */
+    private fun buildAccentDot(option: AccentTheme, selected: Boolean): View {
+        val size = (36 * resources.displayMetrics.density).toInt()
+        val margin = (5 * resources.displayMetrics.density).toInt()
+        val dot = View(this)
+        val params = LinearLayout.LayoutParams(size, size).apply {
+            marginEnd = margin
+            marginStart = margin
+        }
+        dot.layoutParams = params
+        val shape = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(option.previewColor)
+            if (selected) {
+                setStroke((3 * resources.displayMetrics.density).toInt(), 0xFF171725.toInt())
+            } else {
+                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
+            }
+        }
+        dot.background = shape
+        dot.contentDescription = option.label
+        dot.isClickable = true
+        dot.isFocusable = true
+        dot.setOnClickListener {
+            MangaLensTheme.select(option, ThemeStore.mode)
+            // recreate() memakai tema baru karena ThemedActivity menerapkannya
+            // sebelum layout di-inflate.
+            recreate()
+        }
+        return dot
+    }
+
+    private fun buildModeChip(option: ThemeMode, selected: Boolean): TextView {
+        val density = resources.displayMetrics.density
+        val chip = TextView(this)
+        chip.text = option.label
+        chip.textSize = 13f
+        chip.gravity = android.view.Gravity.CENTER
+        val horizontal = (14 * density).toInt()
+        val vertical = (8 * density).toInt()
+        chip.setPadding(horizontal, vertical, horizontal, vertical)
+        chip.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = (8 * density).toInt() }
+        val shape = GradientDrawable().apply {
+            cornerRadius = 20 * density
+            if (selected) {
+                setColor(resolveThemeColor(androidx.appcompat.R.attr.colorPrimary))
+                setStroke((1 * density).toInt(), resolveThemeColor(androidx.appcompat.R.attr.colorPrimary))
+            } else {
+                setColor(resolveThemeColor(com.mangalens.ui.R.attr.colorPrimaryLight))
+                setStroke((1 * density).toInt(), resolveThemeColor(android.R.attr.textColorSecondary))
+            }
+        }
+        chip.background = shape
+        chip.setTextColor(
+            if (selected) 0xFFFFFFFF.toInt()
+            else resolveThemeColor(android.R.attr.textColorPrimary)
+        )
+        chip.isClickable = true
+        chip.isFocusable = true
+        chip.setOnClickListener {
+            MangaLensTheme.select(ThemeStore.accent, option)
+            recreate()
+        }
+        return chip
+    }
+
+    private fun resolveThemeColor(attr: Int): Int {
+        val typed = obtainStyledAttributes(intArrayOf(attr))
+        val color = try {
+            typed.getColor(0, 0xFF000000.toInt())
+        } finally {
+            typed.recycle()
+        }
+        return color
     }
 }

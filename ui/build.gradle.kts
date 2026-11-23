@@ -22,6 +22,10 @@ android {
 }
 
 dependencies {
+    api(project(":core"))
+
+    api("androidx.core:core-ktx:1.13.1")
+
     // Tema turunan AppCompat dipakai lintas modul UI.
     api("androidx.appcompat:appcompat:1.7.0")
 }

@@ -31,7 +31,7 @@
             android:layout_marginTop="6dp"
             android:lineSpacingExtra="2dp"
             android:text="@string/home_subtitle"
-            android:textColor="#DCD9FF"
+            android:textColor="@color/mangalens_on_header"
             android:textSize="13sp" />
     </LinearLayout>
 
@@ -90,7 +90,7 @@
                     android:paddingEnd="10dp"
                     android:text="@string/paste"
                     android:textAllCaps="false"
-                    android:textColor="@color/mangalens_primary"
+                    android:textColor="?attr/colorPrimary"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -147,7 +147,7 @@
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
                     android:text="FLOATING"
-                    android:textColor="@color/mangalens_primary"
+                    android:textColor="?attr/colorPrimary"
                     android:textSize="10sp"
                     android:textStyle="bold" />
 
@@ -262,6 +262,71 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+
+        <!-- Kartu tampilan: warna aksen + mode, plus watermark versi. -->
+        <LinearLayout
+            android:id="@+id/appearanceCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_chip"
+                    android:letterSpacing="0.08"
+                    android:paddingStart="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="4dp"
+                    android:text="@string/appearance_chip"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/appearance_title"
+                    android:textColor="@color/mangalens_on_surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/themeSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/mangalens_muted"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/accentRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:id="@+id/modeRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal" />
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -290,7 +355,7 @@
                 android:paddingBottom="6dp"
                 android:text="@string/clear_history"
                 android:textAllCaps="false"
-                android:textColor="@color/mangalens_primary"
+                android:textColor="?attr/colorPrimary"
                 android:textSize="13sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -320,5 +385,16 @@
                 android:visibility="gone" />
         </FrameLayout>
     </LinearLayout>
+
+    <!-- Watermark versi: kecil, di bawah konten, tidak menutupi gambar/terjemahan. -->
+    <TextView
+        android:id="@+id/watermark"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingTop="6dp"
+        android:paddingBottom="10dp"
+        android:textColor="@color/mangalens_muted"
+        android:textSize="11sp" />
 
 </LinearLayout>

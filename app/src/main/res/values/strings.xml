@@ -27,4 +27,8 @@
     <string name="overlay_permission_needed">Izinkan "Tampil di atas aplikasi lain" agar bubble bisa muncul.</string>
     <string name="screen_capture_denied">Izin rekam layar ditolak.</string>
     <string name="bubble_running">Bubble aktif di semua aplikasi. Ketuk bubble untuk menempelkan terjemahan di balon layar.</string>
+    <string name="appearance_chip">TAMPILAN</string>
+    <string name="appearance_title">Warna &amp; mode</string>
+    <string name="appearance_summary">%1$s • %2$s</string>
+    <string name="version_watermark">MangaLens • v%1$s</string>
 </resources>

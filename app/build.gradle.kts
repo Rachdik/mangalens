@@ -17,6 +17,8 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // Dipakai untuk watermark versi (BuildConfig.VERSION_NAME).
+        buildConfig = true
     }
 
     // Native lib ML Kit besar (~16 MB per ABI); hasilkan APK per ABI agar

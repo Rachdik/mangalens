@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mode gelap: permukaan gelap, teks terang. Warna aksen tetap dari palet. -->
+    <color name="mangalens_window">#0F1116</color>
+    <color name="mangalens_card">#191C22</color>
+    <color name="mangalens_outline">#2B2F38</color>
+    <color name="mangalens_surface">#12141A</color>
+    <color name="mangalens_on_surface">#ECEDF2</color>
+    <color name="mangalens_muted">#9AA0AE</color>
+    <color name="mangalens_input">#22252D</color>
+    <color name="mangalens_error">#FFB4AB</color>
+    <color name="mangalens_on_primary">#FFFFFF</color>
+    <color name="mangalens_on_header">#DCD8FF</color>
+
+    <!-- Versi gelap dari warna "light" agar chip tetap kontras di latar gelap. -->
+    <color name="accent_purple_light">#241F4D</color>
+    <color name="accent_blue_light">#152449</color>
+    <color name="accent_cyan_light">#0E3038</color>
+    <color name="accent_green_light">#10331E</color>
+    <color name="accent_red_light">#3A1517</color>
+    <color name="accent_orange_light">#3A1D0C</color>
+    <color name="accent_pink_light">#3A1226</color>
+    <color name="accent_teal_light">#0E322E</color>
+</resources>
