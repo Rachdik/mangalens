@@ -75,6 +75,20 @@
             </intent-filter>
         </activity>
 
-    </application>
+    <activity
+        android:name="com.mangalens.reader.ReaderActivity"
+        android:exported="true"
+        tools:replace="android:exported"
+        android:launchMode="singleTop"
+        android:theme="@style/Theme.MangaLens">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="file" />
+            <data android:scheme="content" />
+        </intent-filter>
+    </activity>
+
+</application>
 
 </manifest>

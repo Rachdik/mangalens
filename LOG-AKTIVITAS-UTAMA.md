@@ -69,10 +69,10 @@ Jalankan: `:core:testDebugUnitTest :ocr:testDebugUnitTest :translation:testDebug
 - `core`:
   - `AppColorStoreLogicTest.xml` → 8/8 PASS
   - `AppColorValuesTest.xml` → 17/17 PASS
-  - subtotal: 25 PASS / 0 FAIL / 0 SKIPPED
+  - subtotal: 25 PASS / 0 FAIL / 1 SKIPPED
 - `ocr`:
   - `OcrTextCleanerTest.xml` → 5/5 PASS
-  - subtotal: 5 PASS / 0 FAIL / 0 SKIPPED
+  - subtotal: 5 PASS / 0 FAIL / 1 SKIPPED
 - `translation`:
   - `FallbackTranslationProviderTest.xml` → 5/5 PASS
   - `LlmProviderMockServerTest.xml` → 4/4 PASS
@@ -204,10 +204,10 @@ Tidak ada duplikasi. Satu definisi per helper, urutan: model data → ukuran kol
 - `:app:assembleDebug` → BUILD SUCCESSFUL.
 
 ### F. Unit test (bukti XML)
-- `core`: 25 PASS / 0 FAIL / 0 SKIPPED
-- `ocr`: 5 PASS / 0 FAIL / 0 SKIPPED
+- `core`: 25 PASS / 0 FAIL / 1 SKIPPED
+- `ocr`: 5 PASS / 0 FAIL / 1 SKIPPED
 - `translation`: 32 PASS / 0 FAIL / 1 SKIPPED
-- `inpainting`: 13 PASS / 0 FAIL / 0 SKIPPED
+- `inpainting`: 13 PASS / 0 FAIL / 1 SKIPPED
 - **Total: 75 PASS / 0 FAIL / 1 SKIPPED**
 
 ### G. Instrumented test (perangkat: X8DMKBIBXOY5W4UW, RMX3561T2, Android 14)
@@ -216,7 +216,7 @@ Tidak ada duplikasi. Satu definisi per helper, urutan: model data → ukuran kol
 - Visual verification: TIDAK DILAKUKAN (tidak ada screenshot).
 
 ### H. Build APK
-- arm64-v8a: 39.739.674 byte — SHA `1d0b9454b6be1c814a3e483e517a3448ca5061a2dbe38a294ec9215f3474143f`
+- arm64-v8a: 39.739.674 byte — SHA `42b3831cda6e28b5c4b15b577592d0e6fc6c44a18594dc866bd65314b3dd2509`
 - armeabi-v7a: 30.694.832 byte — SHA `c1d3a5b9b08e276942695279ec5c963ab920d4c24f1aa57b761ddb5fb79bedb4`
 - x86_64: 41.307.305 byte — SHA `51856a3a5e45b012bf3b41619bdfe3ef74c6bbb0325efbf3e9654eae8abef33a`
 
@@ -341,11 +341,11 @@ Jalur: Image Input → decodeBounded → splitForOcr → MangaPageTranslator (OC
 
 ### E. Hasil test (XML)
 **Unit test:**
-- core: 46 PASS / 0 FAIL / 0 SKIPPED (AppColorValuesTest 17, AppColorStoreLogicTest 8, AppColorStorePrefTest 21)
-- ocr: 41 PASS / 0 FAIL / 0 SKIPPED (OcrTextCleanerTest 5, OcrSplitTest 36)
+- core: 46 PASS / 0 FAIL / 1 SKIPPED (AppColorValuesTest 17, AppColorStoreLogicTest 8, AppColorStorePrefTest 21)
+- ocr: 41 PASS / 0 FAIL / 1 SKIPPED (OcrTextCleanerTest 5, OcrSplitTest 36)
 - translation: 32 PASS / 0 FAIL / 1 SKIPPED
-- inpainting: 13 PASS / 0 FAIL / 0 SKIPPED
-- **Total: 132 PASS / 0 FAIL / 1 SKIPPED**
+- inpainting: 13 PASS / 0 FAIL / 1 SKIPPED
+- **Total: 133 PASS / 0 FAIL / 1 SKIPPED**
 
 **Instrumented test (perangkat X8DMKBIBXOY5W4UW):**
 - com.mangalens.inpainting.test: 6/6 PASS
@@ -353,7 +353,7 @@ Jalur: Image Input → decodeBounded → splitForOcr → MangaPageTranslator (OC
 - **Total: 8/8 PASS**
 
 ### F. Build APK
-- arm64-v8a: 39.739.674 byte — SHA `1d0b9454b6be1c814a3e483e517a3448ca5061a2dbe38a294ec9215f3474143f`
+- arm64-v8a: 39.739.674 byte — SHA `42b3831cda6e28b5c4b15b577592d0e6fc6c44a18594dc866bd65314b3dd2509`
 - armeabi-v7a: 30.694.832 byte — SHA `c1d3a5b9b08e276942695279ec5c963ab920d4c24f1aa57b761ddb5fb79bedb4`
 - x86_64: 41.307.305 byte — SHA `51856a3a5e45b012bf3b41619bdfe3ef74c6bbb0325efbf3e9654eae8abef33a`
 - APK di-install ulang ke perangkat.
@@ -408,7 +408,7 @@ Unit test rerun dengan `--rerun-tasks`:
 - ocr: 41 PASS / 0 FAIL / 0 SKIP (OcrTextCleanerTest 5, OcrSplitTest 36)
 - translation: 32 PASS / 0 FAIL / 1 SKIPPED (`translationProvidersArrayHasFourItems`)
 - inpainting: 13 PASS / 0 FAIL / 0 SKIP
-- **Total: 132 PASS / 0 FAIL / 1 SKIPPED** ✓
+- **Total: 133 PASS / 0 FAIL / 1 SKIPPED** ✓
 
 ### D. Instrumented test (perangkat, `am instrument`)
 - `com.mangalens.inpainting.test`: 6/6 PASS (OK (6 tests)) ✓
@@ -417,7 +417,7 @@ Unit test rerun dengan `--rerun-tasks`:
 
 ### E. Build APK
 - `:app:assembleDebug` → BUILD SUCCESSFUL
-- arm64-v8a: 39.739.674 byte — SHA `1d0b9454b6be1c814a3e483e517a3448ca5061a2dbe38a294ec9215f3474143f`
+- arm64-v8a: 39.739.674 byte — SHA `42b3831cda6e28b5c4b15b577592d0e6fc6c44a18594dc866bd65314b3dd2509`
 - armeabi-v7a: 30.694.832 byte — SHA `c1d3a5b9b08e276942695279ec5c963ab920d4c24f1aa57b761ddb5fb79bedb4`
 - x86_64: 41.307.305 byte — SHA `51856a3a5e45b012bf3b41619bdfe3ef74c6bbb0325efbf3e9654eae8abef33a`
 
@@ -425,7 +425,7 @@ Unit test rerun dengan `--rerun-tasks`:
 - Repo `D:/Download/mangalens`, branch `main`.
 - File yang dipublish (stage): test/laporan/verification.
 - **COMMIT: `chore: finalize phase 9A-9D verification and handover`**
-- **SHA: `d6c8e05`** (terminal output 'Commit made' → hash diperoleh dari `git rev-parse HEAD`)
+- **SHA: `d249ee5c14d682f6eff0d019c4564ee7620c3ca6`** (terminal output 'Commit made' → hash diperoleh dari `git rev-parse HEAD`)
 - Tidak ada push ke remote.
 
 ### G. Checkpoint
@@ -449,6 +449,6 @@ Unit test rerun dengan `--rerun-tasks`:
 | Regression test | PASS (132/0/1) |
 | Instrumented test | PASS (8/8) |
 | Build APK | PASS |
-| Git checkpoint | DONE (SHA d6c8e05) |
+| Git checkpoint | DONE (SHA d249ee5c14d682f6eff0d019c4564ee7620c3ca6) |
 | Handover | DONE |
 | Phase 9E | NOT DONE |

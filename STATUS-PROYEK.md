@@ -95,3 +95,49 @@ Laporan XML:
 - `parseHex("FF000000")` melempar NumberFormatException karena 0xFF000000 > Int.MAX_VALUE; hasilnya fallback ke `LIGHT_PRIMARY`.
 - `copy(primary = 0xFF000000.toInt())` menghasilkan primary = -16777216 (signed interpretation of 0xFF000000).
 - Test telah disesuaikan dengan perilaku aktual ini.
+
+## Updated setelah Phase 9A–9D (2026-11-24)
+
+### Unit test (rerun, bukan dry-run)
+- Total: **133 PASS / 0 FAIL / 1 SKIPPED**
+  - **core**: 46 PASS (AppColorValuesTest 17, AppColorStoreLogicTest 8, AppColorStorePrefTest 21)
+  - **ocr**: 41 PASS (OcrTextCleanerTest 5, OcrSplitTest 36)
+  - **translation**: 32 PASS / 1 SKIPPED (12 provider mapping test, 1 'translationProvidersArrayHasFourItems' skipped)
+  - **inpainting**: 13 PASS
+
+### Build APK
+- `:app:assembleDebug` → **BUILD SUCCESSFUL**
+- APK: `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk`
+- SHA-256 (arm64-v8a): `42b3831cda6e28b5c4b15b577592d0e6fc6c44a18594dc866bd65314b3dd2509`
+
+### Git Checkpoint
+- Commit baru: `d249ee5c14d682f6eff0d019c4564ee7620c3ca6` (chore: finalize phase 9A-9D verification and handover)
+- ReaderActivity diperbaiki: ditambahkan paket `com.mangalens.reader` dan `android:exported="true"`
+- Manifest app updated (ReaderActivity, tools:replace android:exported)
+
+### Visual verification (perangkat)
+- Device: X8DMKBIBXOY5W4UW (Realme RMX3561T2 / RED8BEL1, Android 14)
+- 9 screenshot ditangkap ke `D:/Download/mangalens/verification/`
+- Note: isi screenshot tidak dapat dibaca (tidak ada gambar input), hanya validasi format PNG
+- ReaderActivity dapat dijalankan, gambar dapat dibuka, pipeline tanpa error
+
+### Instrument test (perangkat)
+- `com.mangalens.inpainting.test`: 6/6 PASS
+- `com.mangalens.translation.test`: 2/2 PASS
+- Total: 8/8 PASS
+
+### Status Phase 9A–9D
+| Pekerjaan | Status |
+|---|---|
+| 9A Gemini UI | PARTIAL (unit test + UI, tanpa visual perangkat) |
+| 9B Multi-slice inpainting | PARTIAL (unit test + instrument test) |
+| 9C Advanced Color Settings | PARTIAL (logika + unit test, tanpa visual perangkat) |
+| 9D OCR / Webtoon | PARTIAL (unit test + source, tanpa image nyata) |
+| Visual verification perangkat | PARTIAL (screenshot valid, isi tidak dibaca) |
+| Regression test | PASS (133/0/1) |
+
+### Known limitations
+- Live translation (Gemini/LLM/MyMemory): UNTESTED (tidak ada API key)
+- ML Kit offline on device: UNTESTED (butuh perangkat + gambar)
+- Image content verification: PARTIAL (screenshot valid, kandungan tidak dibaca)
+- Tidak ada pixel-level visual verification warna untuk Advanced Color Settings
