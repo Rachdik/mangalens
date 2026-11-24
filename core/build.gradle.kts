@@ -27,4 +27,7 @@ dependencies {
     // Preferensi tampilan (warna aksen + mode terang/gelap).
     api("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.core:core-ktx:1.13.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

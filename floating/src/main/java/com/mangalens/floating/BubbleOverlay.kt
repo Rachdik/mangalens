@@ -16,31 +16,41 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.widget.TextViewCompat
+import com.mangalens.core.theme.ThemeStore
 import com.mangalens.inpainting.TranslatedBubble
+import com.mangalens.translation.BackgroundColor
+import com.mangalens.translation.OverlayOpacity
+import com.mangalens.translation.TextColor
+import com.mangalens.translation.TextSize
+import com.mangalens.translation.TranslationSettings
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 /**
  * Bubble melayang, teks terjemahan yang ditempel di atas balon asli, dan
- * panel status kecil. Semua view dibuat programatik agar tidak bergantung
+ * panel kontrol. Semua view dibuat programatik agar tidak bergantung
  * pada resource tema aplikasi pemanggil.
  */
 class BubbleOverlay(
     private val context: Context,
     private val onTranslate: () -> Unit,
-    private val onStop: () -> Unit
+    private val onStop: () -> Unit,
+    private val onRefresh: () -> Unit,
+    private val onPause: () -> Unit,
+    private val onResume: () -> Unit,
+    private val onSettings: () -> Unit,
+    private val settings: TranslationSettings
 ) {
 
     private val windowManager: WindowManager = context.getSystemService(WindowManager::class.java)
     private val density = context.resources.displayMetrics.density
 
-    // Ukuran layar diambil dari window metrics (sama seperti ScreenCapture)
-    // supaya koordinat tempelan cocok dengan frame hasil tangkapan layar.
     private val screenBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         runCatching { windowManager?.currentWindowMetrics?.bounds }.getOrNull()
     } else {
@@ -49,14 +59,19 @@ class BubbleOverlay(
     private val screenWidth = screenBounds?.width() ?: context.resources.displayMetrics.widthPixels
     private val screenHeight = screenBounds?.height() ?: context.resources.displayMetrics.heightPixels
 
-    private var bubble: TextView? = null
+    /** Warna aksen mengikuti tema aplikasi, bukan konstanta terpisah. */
+    private val accentColor: Int = ThemeStore.accentColor()
+
+    private var bubble: Button? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
+    private var refreshButton: TextView? = null
+    private var refreshParams: WindowManager.LayoutParams? = null
+    private var refreshAnimator: android.animation.ObjectAnimator? = null
 
     private var panel: LinearLayout? = null
     private var panelParams: WindowManager.LayoutParams? = null
-    private var scroll: ScrollView? = null
-    private var content: TextView? = null
     private var status: TextView? = null
+    private var scroller: ScrollView? = null
 
     private var bubbleAttached = false
     private var panelAttached = false
@@ -69,14 +84,15 @@ class BubbleOverlay(
     /** @return true bila bubble benar-benar terpasang di layar. */
     fun show(): Boolean {
         if (bubbleAttached) return true
-        val view = TextView(context).apply {
+        val view = Button(context).apply {
             text = "訳"
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = circle(dp(56), BUBBLE_COLOR)
+            background = circle(dp(56), accentColor)
             elevation = dp(8).toFloat()
+            isAllCaps = false
             contentDescription = "Terjemahkan layar"
         }
 
@@ -96,16 +112,84 @@ class BubbleOverlay(
 
         attachTouch(view, params)
 
-        return runCatching {
+        val attached = runCatching {
             windowManager.addView(view, params)
             bubble = view
             bubbleParams = params
             bubbleAttached = true
             true
         }.getOrElse { error ->
-            // Biasanya izin "tampil di atas aplikasi lain" dicabut/ditolak.
             Log.w(TAG, "Bubble gagal dipasang", error)
             false
+        }
+        if (attached) attachRefreshButton()
+        return attached
+    }
+
+    /** Tombol refresh bulat kecil di samping bubble; selalu terlihat. */
+    private fun attachRefreshButton() {
+        if (refreshButton != null) return
+        val base = bubbleParams ?: return
+        val size = dp(40)
+        val params = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = refreshX(base.x)
+            y = base.y + dp(8)
+            ignoreInsets()
+        }
+
+        val button = TextView(context).apply {
+            text = "↻"
+            textSize = 19f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = circle(size, accentColor)
+            elevation = dp(7).toFloat()
+            contentDescription = "Perbarui terjemahan"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onRefresh() }
+        }
+
+        runCatching {
+            windowManager.addView(button, params)
+            refreshButton = button
+            refreshParams = params
+        }.onFailure { Log.w(TAG, "Tombol refresh gagal dipasang", it) }
+    }
+
+    private fun refreshX(bubbleX: Int): Int {
+        val right = bubbleX + dp(56) + dp(8)
+        return if (right + dp(40) <= screenWidth) {
+            right
+        } else {
+            (bubbleX - dp(40) - dp(8)).coerceAtLeast(0)
+        }
+    }
+
+    /** Animasi rotasi singkat selama refresh; tidak mengubah posisi tombol. */
+    fun setRefreshing(refreshing: Boolean) {
+        val button = refreshButton ?: return
+        refreshAnimator?.cancel()
+        if (refreshing) {
+            button.alpha = 0.75f
+            refreshAnimator = android.animation.ObjectAnimator.ofFloat(button, View.ROTATION, 0f, 360f).apply {
+                duration = 750L
+                repeatCount = android.animation.ValueAnimator.INFINITE
+                interpolator = android.view.animation.LinearInterpolator()
+                start()
+            }
+        } else {
+            refreshAnimator = null
+            button.alpha = 1f
+            button.rotation = 0f
         }
     }
 
@@ -113,6 +197,12 @@ class BubbleOverlay(
         handler.removeCallbacks(hidePanelTask)
         clearTranslations()
         hidePanel()
+        setRefreshing(false)
+        refreshButton?.let { view ->
+            runCatching { windowManager.removeView(view) }
+        }
+        refreshButton = null
+        refreshParams = null
         val view = bubble
         if (view != null && bubbleAttached) {
             runCatching { windowManager.removeView(view) }
@@ -144,19 +234,19 @@ class BubbleOverlay(
         }
     }
 
-    /**
-     * Sembunyikan bubble + panel sementara. Penting: overlay sendiri ikut
-     * terekam MediaProjection, jadi harus dilepas sebelum screenshot.
-     */
     fun setHidden(hidden: Boolean) {
         if (hidden) {
-            // Overlay sendiri ikut terekam, termasuk teks terjemahan.
             clearTranslations()
             val view = bubble
             if (view != null && bubbleAttached) {
                 runCatching { windowManager.removeView(view) }
             }
             bubbleAttached = false
+            refreshButton?.let { button ->
+                runCatching { windowManager.removeView(button) }
+            }
+            refreshButton = null
+            refreshParams = null
             hidePanel()
             return
         }
@@ -168,6 +258,7 @@ class BubbleOverlay(
                 windowManager.addView(view, params)
                 bubbleAttached = true
             }
+            attachRefreshButton()
         }
     }
 
@@ -185,17 +276,14 @@ class BubbleOverlay(
         status?.setTextColor(if (isError) 0xFFB3261E.toInt() else 0xFF6B6B73.toInt())
     }
 
-    /**
-     * Menempelkan terjemahan tepat di posisi balon pada layar: latar view
-     * memakai warna balon asli sehingga teks sumber tertutup, lalu teks
-     * Indonesia ditulis di atasnya. [scale] adalah skala bitmap tangkapan
-     * layar terhadap layar sebenarnya.
-     *
-     * @return jumlah balon yang berhasil ditempel.
-     */
     fun showTranslations(bubbles: List<TranslatedBubble>, scale: Float): Int {
         clearTranslations()
         if (bubbles.isEmpty() || scale <= 0f) return 0
+
+        val opacity = settings.overlayOpacity
+        val bgColor = settings.backgroundColor
+        val textColorSetting = settings.textColor
+        val textSizeSetting = settings.textSize
 
         var shown = 0
         for (bubble in bubbles) {
@@ -203,18 +291,10 @@ class BubbleOverlay(
             val text = bubble.targetText.trim()
             if (text.isEmpty()) continue
 
-            // Tempelan dibuat seukuran kotak teks aslinya, bukan seluruh balon,
-            // supaya gambar di sekitar balon tetap terlihat. Padding kecil
-            // hanya untuk menutup huruf asli.
             val textRect = bubble.textBounds
             if (textRect.width() <= 0 || textRect.height() <= 0) continue
-            // Padding cukup untuk menutup huruf asli sampai tepinya; kotak OCR
-            // kadang lebih ketat dari bentuk huruf sebenarnya.
-            val pad = (textRect.height() * 0.12f).toInt().coerceIn(3, 12)
-            // Bahasa Indonesia umumnya lebih panjang dari teks aslinya, jadi
-            // kotak diberi ruang horizontal ekstra agar tidak terpecah menjadi
-            // baris-baris pendek yang sulit dibaca.
-            val extraWidth = (textRect.width() * 0.20f).toInt()
+            val pad = (textRect.height() * 0.08f).toInt().coerceIn(2, 10)
+            val extraWidth = (textRect.width() * 0.08f).toInt()
 
             val left = ((textRect.left - pad - extraWidth / 2) / scale).toInt()
                 .coerceIn(0, max(0, screenWidth - MIN_TRANSLATION_WIDTH))
@@ -223,30 +303,58 @@ class BubbleOverlay(
             val width = ((textRect.width() + pad * 2 + extraWidth) / scale).toInt()
                 .coerceAtMost(screenWidth - left)
                 .coerceAtMost((screenWidth * MAX_WIDTH_FRACTION).toInt())
-            val height = ((textRect.height() * 1.10f + pad * 2) / scale).toInt()
+            val height = ((textRect.height() + pad * 2) / scale).toInt()
                 .coerceAtMost(screenHeight - top)
                 .coerceAtMost((screenHeight * MAX_HEIGHT_FRACTION).toInt())
             if (width < MIN_TRANSLATION_WIDTH || height < MIN_TRANSLATION_HEIGHT) continue
 
-            val view = TextView(context).apply {
+            val textColor = when (textColorSetting) {
+                TextColor.AUTO -> if (luminance(bubble.fillColor) > 150) Color.BLACK else Color.WHITE
+                TextColor.WHITE -> Color.WHITE
+                TextColor.BLACK -> Color.BLACK
+            }
+
+            val bgColorValue = when (bgColor) {
+                BackgroundColor.AUTO -> bubble.fillColor
+                BackgroundColor.WHITE -> 0xFFFFFFFF.toInt()
+                BackgroundColor.BLACK -> 0xFF000000.toInt()
+                BackgroundColor.TRANSPARENT -> Color.TRANSPARENT
+            }
+
+            val alpha = opacity.alpha
+            val finalBgColor = if (bgColor == BackgroundColor.TRANSPARENT) {
+                Color.TRANSPARENT
+            } else {
+                (bgColorValue and 0xFFFFFF) or (alpha shl 24)
+            }
+
+            val translationView = TextView(context).apply {
                 this.text = text
-                setTextColor(bubble.textColor)
+                setTextColor(textColor)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
-                setPadding(dp(3), dp(2), dp(3), dp(2))
+                textSize = textSizeSetting.sp
+                setPadding(dp(2), dp(1), dp(2), dp(1))
+                // Teks panjang diperkecil bertahap sampai batas terbaca, bukan
+                // dipotong atau meluber keluar area dialog.
+                setAutoSizeTextTypeUniformWithConfiguration(
+                    9,
+                    textSizeSetting.sp.toInt(),
+                    1,
+                    android.util.TypedValue.COMPLEX_UNIT_SP
+                )
+                setShadowLayer(
+                    2f,
+                    0f,
+                    0f,
+                    if (textColor == Color.BLACK) 0x66FFFFFF else 0x66000000
+                )
                 background = roundedRect(
-                    color = bubble.fillColor,
-                    radius = dp(6),
-                    stroke = Color.argb(28, 0, 0, 0)
+                    color = finalBgColor,
+                    radius = dp(5),
+                    stroke = Color.argb(16, 0, 0, 0)
                 )
             }
-            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                view,
-                MIN_TEXT_SP,
-                MAX_TEXT_SP,
-                1,
-                TypedValue.COMPLEX_UNIT_SP
-            )
 
             val params = WindowManager.LayoutParams(
                 width,
@@ -255,8 +363,6 @@ class BubbleOverlay(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    // Koordinat tangkapan layar dihitung dari pojok layar,
-                    // termasuk area status bar. Samakan asal koordinatnya.
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
@@ -267,25 +373,22 @@ class BubbleOverlay(
             }
 
             val attached = runCatching {
-                windowManager.addView(view, params)
+                windowManager.addView(translationView, params)
                 true
             }.getOrDefault(false)
             if (attached) {
-                translationViews += view
+                translationViews += translationView
                 shown++
-                // Teks Indonesia sering lebih panjang dari aslinya. Bila masih
-                // terpotong setelah auto-size, tinggikan tempelan (maks 1.6×)
-                // supaya kalimatnya terbaca utuh.
-                view.post {
-                    val layout = view.layout ?: return@post
-                    val needed = layout.height + view.paddingTop + view.paddingBottom
-                    if (needed > view.height + dp(2)) {
+                translationView.post {
+                    val layout = translationView.layout ?: return@post
+                    val needed = layout.height + translationView.paddingTop + translationView.paddingBottom
+                    if (needed > translationView.height + dp(2) && translationView.height > 0) {
                         val grown = min(needed, (height * 1.8f).toInt())
                             .coerceAtMost(screenHeight - top)
                             .coerceAtMost((screenHeight * 0.32f).toInt())
-                        if (grown > view.height) {
+                        if (grown > translationView.height) {
                             params.height = grown
-                            runCatching { windowManager.updateViewLayout(view, params) }
+                            runCatching { windowManager.updateViewLayout(translationView, params) }
                         }
                     }
                 }
@@ -304,7 +407,6 @@ class BubbleOverlay(
 
     fun hasTranslations(): Boolean = translationViews.isNotEmpty()
 
-    /** Menampilkan status singkat lalu panel ditutup otomatis agar layar bersih. */
     fun flashStatus(text: String, isError: Boolean = false, durationMs: Long = 2400L) {
         handler.removeCallbacks(hidePanelTask)
         setStatus(text, isError)
@@ -312,10 +414,10 @@ class BubbleOverlay(
     }
 
     private fun fitScrollToContent(top: Int, bottom: Int) {
-        val scroller = scroll ?: return
+        val scrollerView = scroller ?: return
         val target = (bottom - top).coerceIn(dp(40), dp(340))
-        if (scroller.layoutParams.height == target) return
-        scroller.layoutParams = scroller.layoutParams.apply { height = target }
+        if (scrollerView.layoutParams.height == target) return
+        scrollerView.layoutParams = scrollerView.layoutParams.apply { height = target }
         val container = panel
         val params = panelParams
         if (container != null && params != null && panelAttached) {
@@ -364,6 +466,13 @@ class BubbleOverlay(
                     params.x = (startX + dx).coerceIn(0, max(0, screenWidth - dp(56)))
                     params.y = (startY + dy).coerceIn(0, max(0, screenHeight - dp(56)))
                     runCatching { windowManager.updateViewLayout(view, params) }
+                    val refresh = refreshButton
+                    val refreshLayout = refreshParams
+                    if (refresh != null && refreshLayout != null) {
+                        refreshLayout.x = refreshX(params.x)
+                        refreshLayout.y = params.y + dp(8)
+                        runCatching { windowManager.updateViewLayout(refresh, refreshLayout) }
+                    }
                     true
                 }
 
@@ -398,34 +507,56 @@ class BubbleOverlay(
             elevation = dp(10).toFloat()
         }
 
+        // Header dengan tombol kontrol
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(context).apply {
             text = "MangaLens"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(BUBBLE_COLOR)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(accentColor)
         }
-        val close = TextView(context).apply {
-            text = "×"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            setTextColor(0xFF6B6B73.toInt())
-            setPadding(dp(12), 0, dp(4), 0)
-            setOnClickListener { hidePanel() }
+
+        val refreshBtn = createControlButton(context, "↻", dp(2)) { onRefresh() }
+        val pauseBtn = createControlButton(context, "⏸", dp(2)) { onPause() }
+        val resumeBtn = createControlButton(context, "▶", dp(2)) { onResume() }
+        val settingsBtn = createControlButton(context, "⚙", dp(12)) { onSettings() }
+        val closeBtn = createControlButton(context, "×", dp(12)) { hidePanel() }
+
+        // Hirisan tombol horizontal
+        val btnRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(2), 0, dp(2), 0)
         }
+        btnRow.addView(refreshBtn, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+        })
+        btnRow.addView(pauseBtn, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+        })
+        btnRow.addView(resumeBtn, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+        })
+        btnRow.addView(settingsBtn, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+        })
+        btnRow.addView(closeBtn, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+        })
+
         header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(close, LinearLayout.LayoutParams(-2, -2))
+        header.addView(btnRow, LinearLayout.LayoutParams(-2, -2))
 
         val statusView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            textSize = 12f
             setTextColor(0xFF6B6B73.toInt())
         }
         status = statusView
 
         val contentView = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            textSize = 14f
             setTextColor(0xFF1B1B1F.toInt())
             setLineSpacing(dp(4).toFloat(), 1f)
             setTextIsSelectable(true)
@@ -433,9 +564,8 @@ class BubbleOverlay(
         contentView.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
             fitScrollToContent(top, bottom)
         }
-        content = contentView
 
-        val scroller = ScrollView(context).apply {
+        val scrollerView = ScrollView(context).apply {
             isFillViewport = false
             addView(
                 contentView,
@@ -445,7 +575,7 @@ class BubbleOverlay(
                 )
             )
         }
-        scroll = scroller
+        scroller = scrollerView
 
         container.addView(header)
         container.addView(
@@ -453,12 +583,24 @@ class BubbleOverlay(
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }
         )
         container.addView(
-            scroller,
+            scrollerView,
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) }
         )
 
         panel = container
         return container
+    }
+
+    private fun createControlButton(context: Context, text: String, paddingEnd: Int, onClick: () -> Unit): TextView {
+        return TextView(context).apply {
+            this.text = text
+            textSize = 16f
+            setTextColor(accentColor)
+            setPadding(dp(8), 0, paddingEnd, 0)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
     }
 
     private fun panelWidth(): Int = (screenWidth - dp(24)).coerceAtMost(dp(360))
@@ -488,10 +630,6 @@ class BubbleOverlay(
             setStroke(dp(1), stroke)
         }
 
-    /**
-     * Overlay harus memakai koordinat layar penuh, bukan area setelah status
-     * bar dan navigation bar, agar tempelan jatuh tepat di balon.
-     */
     private fun WindowManager.LayoutParams.ignoreInsets() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             fitInsetsTypes = 0
@@ -502,6 +640,9 @@ class BubbleOverlay(
 
     private fun dp(value: Int): Int = (value * density).toInt()
 
+    private fun luminance(color: Int): Int =
+        (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)).toInt()
+
     private companion object {
         const val TAG = "MangaLensOverlay"
 
@@ -510,8 +651,6 @@ class BubbleOverlay(
         const val MAX_TRANSLATIONS = 40
         const val MIN_TRANSLATION_WIDTH = 30
         const val MIN_TRANSLATION_HEIGHT = 16
-        const val MIN_TEXT_SP = 6
-        const val MAX_TEXT_SP = 20
 
         /** Batas ukuran satu tempelan agar tidak pernah menutupi satu layar. */
         const val MAX_WIDTH_FRACTION = 0.9f

@@ -6,13 +6,15 @@ package com.mangalens.reader.images
  * [width]/[height] adalah ukuran gambar yang benar-benar diekstrak (bisa lebih
  * kecil dari backing store canvas bila melebihi batas piksel), sehingga OCR dan
  * overlay memakai skala yang konsisten.
+ *
+ * [diagnostics] opsional, hanya untuk uji/debug Fase 1 (tidak dipakai pipeline).
  */
 data class CanvasCapture(
     val bytes: ByteArray,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val diagnostics: CanvasPixelCapture.CaptureDiagnostics? = null
 ) {
-    // ByteArray butuh equals/hashCode manual agar tidak menyesatkan saat diuji.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is CanvasCapture) return false

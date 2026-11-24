@@ -47,24 +47,21 @@ enum class ThemeMode(val key: String, val label: String) {
 
 private val Context.appearanceStore by preferencesDataStore(name = "appearance")
 
-/**
- * Preferensi tampilan berbasis DataStore Preferences.
- *
- * Nilai dibaca sekali secara sinkron saat aplikasi start (file preferensi kecil)
- * lalu di-cache di memori, sehingga Activity bisa memanggil [apply] sebelum
- * `super.onCreate` tanpa membuat UI berkedip. Perubahan disimpan asinkron dan
- * langsung tersedia lewat properti.
- */
 object ThemeStore {
 
     private const val KEY_ACCENT = "accent"
     private const val KEY_MODE = "mode"
+    private const val KEY_CUSTOM_ACCENT = "custom_accent"
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var context: Context? = null
 
     @Volatile
     var accent: AccentTheme = AccentTheme.PURPLE
+        private set
+
+    @Volatile
+    var customAccentColor: Int? = null
         private set
 
     @Volatile
@@ -79,19 +76,37 @@ object ThemeStore {
                 val prefs = app.appearanceStore.data.first()
                 accent = AccentTheme.fromKey(prefs[stringPreferencesKey(KEY_ACCENT)])
                 mode = ThemeMode.fromKey(prefs[stringPreferencesKey(KEY_MODE)])
+                val custom = prefs[stringPreferencesKey(KEY_CUSTOM_ACCENT)]
+                customAccentColor = custom?.toIntOrNull()
             }
         }
     }
 
     fun setAccent(value: AccentTheme) {
         accent = value
+        customAccentColor = null
         val app = context ?: return
         scope.launch {
             runCatching {
-                app.appearanceStore.edit { it[stringPreferencesKey(KEY_ACCENT)] = value.key }
+                app.appearanceStore.edit {
+                    it[stringPreferencesKey(KEY_ACCENT)] = value.key
+                    it.remove(stringPreferencesKey(KEY_CUSTOM_ACCENT))
+                }
             }
         }
     }
+
+    fun setCustomAccent(color: Int) {
+        customAccentColor = color
+        val app = context ?: return
+        scope.launch {
+            runCatching {
+                app.appearanceStore.edit { it[stringPreferencesKey(KEY_CUSTOM_ACCENT)] = color.toString() }
+            }
+        }
+    }
+
+    fun accentColor(): Int = customAccentColor ?: accent.previewColor
 
     fun setMode(value: ThemeMode) {
         mode = value

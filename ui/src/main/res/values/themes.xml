@@ -76,4 +76,11 @@
 
     <!-- Tema default aplikasi (dipakai manifest sebelum tema pilihan diterapkan). -->
     <style name="Theme.MangaLens" parent="Theme.MangaLens.Purple" />
+
+    <!-- Tema dialog pengaturan sederhana tanpa status bar. -->
+    <style name="Theme.MangaLens.Settings" parent="Theme.AppCompat.DayNight.Dialog">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 </resources>

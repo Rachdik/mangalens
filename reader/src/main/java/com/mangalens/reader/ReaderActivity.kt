@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.drawable.Drawable
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Base64
@@ -16,6 +17,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -29,13 +31,16 @@ import com.mangalens.reader.databinding.ActivityReaderBinding
 import com.mangalens.reader.images.CanvasCapture
 import com.mangalens.reader.images.CanvasExtractor
 import com.mangalens.reader.images.CanvasPixelCapture
+import com.mangalens.reader.images.CanvasQuality
 import com.mangalens.reader.images.DetectedImage
 import com.mangalens.reader.images.ImageListSheet
 import com.mangalens.reader.images.ImageScanSession
 import com.mangalens.reader.images.ImageStore
 import com.mangalens.reader.images.NativeImageFetcher
 import com.mangalens.reader.images.PageContext
+import com.mangalens.reader.images.FetchOutcome
 import com.mangalens.translation.TranslationBackend
+import com.mangalens.translation.TranslationSettings
 import com.mangalens.ui.theme.MangaLensTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -48,6 +53,16 @@ import org.json.JSONTokener
 import java.io.File
 import kotlin.coroutines.resume
 
+/**
+ * Info sumber gambar canvas untuk diagnostik.
+ */
+data class CanvasSourceInfo(
+    val nativeUrl: String,
+    val nativeWidth: Int = 0,
+    val nativeHeight: Int = 0,
+    val canvasTainted: Boolean = false
+)
+
 class ReaderActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityReaderBinding
@@ -55,9 +70,13 @@ class ReaderActivity : AppCompatActivity() {
     private var imageSheet: ImageListSheet? = null
     private var translatePipeline: ReadTranslatePipeline? = null
     private var translationManager: ImageTranslationManager? = null
+    private lateinit var translationSettings: TranslationSettings
 
     /** Sidik isi canvas yang sudah diproses; mencegah overlay ganda. */
     private val canvasContentHashes = mutableSetOf<Int>()
+
+    /** Deteksi perubahan pengaturan saat kembali dari layar Settings. */
+    private var lastSettingsSignature: String? = null
 
     private val scanScript: String by lazy {
         runCatching {
@@ -71,6 +90,7 @@ class ReaderActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         MangaLensTheme.apply(this)
+        translationSettings = TranslationSettings(this)
         super.onCreate(savedInstanceState)
         binding = ActivityReaderBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -98,6 +118,14 @@ class ReaderActivity : AppCompatActivity() {
             if (binding.webView.canGoBack()) binding.webView.goBack() else finish()
         }
         binding.imageCountButton.setOnClickListener { openImageSheet() }
+        binding.reloadButton.setOnClickListener {
+            // Refresh halaman: memuat ulang HTML/WebView, bukan sekadar OCR.
+            Toast.makeText(this, R.string.reader_reloading, Toast.LENGTH_SHORT).show()
+            Log.d(TAG_OVERLAY, "refresh halaman: webView.reload()")
+            binding.webView.reload()
+        }
+        binding.retranslateButton.setOnClickListener { refreshTranslation() }
+        binding.readerSettingsButton.setOnClickListener { openSettings() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -130,12 +158,20 @@ class ReaderActivity : AppCompatActivity() {
         // Setup terjemahan otomatis
         if (Dependencies.isReady()) {
             setupAutoTranslation()
+            // Baseline agar perubahan pengaturan saat Reader terbuka terdeteksi
+            // di onResume dan langsung memicu terjemahan ulang.
+            lastSettingsSignature = settingsSignature()
         }
     }
 
     private fun setupAutoTranslation() {
-        translatePipeline = ReadTranslatePipeline(this)
-        translatePipeline?.setTranslationBackend(TranslationBackend.ML_KIT)
+        translatePipeline = ReadTranslatePipeline(
+            context = this,
+            llmConfigProvider = { translationSettings.llmConfig() },
+            autoFallbackProvider = { translationSettings.autoFallback },
+            inpaintingEnabledProvider = { translationSettings.inpaintingEnabled }
+        )
+        applyTranslationSettings()
 
         // Callback dipanggil dari coroutine pipeline (Dispatchers.IO). Semua metode
         // WebView wajib dijalankan di thread yang membuat WebView, jadi hasilnya
@@ -148,9 +184,24 @@ class ReaderActivity : AppCompatActivity() {
             context = this,
             scanSession = scanSession,
             pipeline = translatePipeline!!,
-            scope = lifecycleScope
+            scope = lifecycleScope,
+            sourceTag = translationSettings.sourceTag,
+            targetTag = translationSettings.targetTag
         )
         translationManager?.start()
+    }
+
+    /**
+     * Reader wajib memakai pengaturan yang sama dengan layar utama/Floating.
+     * Sebelumnya backend dikunci ke ML_KIT dan tag dikunci "auto"/"id".
+     */
+    private fun applyTranslationSettings() {
+        val backend = translationSettings.backend
+        translatePipeline?.setTranslationBackend(backend)
+        translationManager?.setLanguageTags(
+            translationSettings.sourceTag,
+            translationSettings.targetTag
+        )
     }
 
     /**
@@ -171,6 +222,12 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         val webView = binding.webView
+        result.inpaintedDataUrl?.let { dataUrl ->
+            val script = "document.querySelectorAll('img').forEach(function(i){" +
+                "if(i.src&&i.src.indexOf(" + JSONObject.quote(url) + ")!==-1){i.src=" +
+                JSONObject.quote(dataUrl) + ";}});"
+            webView.evaluateJavascript(script, null)
+        }
         if (result.bubbles.isEmpty()) {
             // Gambar ini tidak punya teks: pastikan overlay lamanya dibuang,
             // bukan meninggalkan kotak kosong.
@@ -183,17 +240,24 @@ class ReaderActivity : AppCompatActivity() {
         }
         val items = result.bubbles.joinToString(",") { bubble ->
             val bounds = bubble.bounds
+            val textBounds = bubble.textBounds
             val fx = bounds.left.toDouble() / result.imageWidth
             val fy = bounds.top.toDouble() / result.imageHeight
             val fw = bounds.width().toDouble() / result.imageWidth
             val fh = bounds.height().toDouble() / result.imageHeight
+            val tx = textBounds.left.toDouble() / result.imageWidth
+            val ty = textBounds.top.toDouble() / result.imageHeight
+            val tw = textBounds.width().toDouble() / result.imageWidth
+            val th = textBounds.height().toDouble() / result.imageHeight
             val background = "rgba(" +
                 Color.red(bubble.fillColor) + "," +
                 Color.green(bubble.fillColor) + "," +
-                // Opak: teks sumber tidak boleh terbaca di balik terjemahan.
-                Color.blue(bubble.fillColor) + ",1.0)"
+                Color.blue(bubble.fillColor) + ",0.94)"
             val foreground = "#" + String.format(java.util.Locale.US, "%06X", 0xFFFFFF and bubble.textColor)
-            "{\"fx\":$fx,\"fy\":$fy,\"fw\":$fw,\"fh\":$fh," +
+            "{\"id\":${JSONObject.quote(bubble.id)}," +
+                "\"order\":${bubble.readingOrder},\"conf\":\"${bubble.confidence.name}\"," +
+                "\"fx\":$fx,\"fy\":$fy,\"fw\":$fw,\"fh\":$fh," +
+                "\"tx\":$tx,\"ty\":$ty,\"tw\":$tw,\"th\":$th," +
                 "\"bg\":\"$background\",\"fg\":\"$foreground\"," +
                 "\"text\":${JSONObject.quote(bubble.targetText)}}"
         }
@@ -201,8 +265,19 @@ class ReaderActivity : AppCompatActivity() {
 
         Log.d(
             TAG_OVERLAY,
-            "render ${result.bubbles.size} terjemahan (${result.imageWidth}x${result.imageHeight})"
+            "render ${result.bubbles.size} terjemahan (${result.imageWidth}x${result.imageHeight}) " +
+                "provider=${result.providerName.ifBlank { "-" }}"
         )
+        // Bukti segmentasi: satu baris log per kelompok teks (bukan satu blok
+        // gabungan), termasuk ID, urutan baca, dan keyakinan batas balon.
+        result.bubbles.forEach { bubble ->
+            Log.d(
+                TAG_OVERLAY,
+                "bubble id=${bubble.id} order=${bubble.readingOrder} conf=${bubble.confidence} " +
+                    "bounds=${bubble.textBounds.toShortString()} src=${bubble.sourceText.take(48)} " +
+                    "-> ${bubble.targetText.take(64)}"
+            )
+        }
 
         webView.evaluateJavascript(
             "(function(){var p=$payload;" +
@@ -289,6 +364,48 @@ class ReaderActivity : AppCompatActivity() {
         sheet.show()
     }
 
+    /**
+     * Terjemahkan ulang halaman yang sudah terbuka tanpa memuat ulang internet.
+     * Overlay lama dibuang, pencarian gambar/OCR dimulai dari cache, dan proses
+     * lama dibatalkan agar tidak ada dua pemindaian berjalan bersamaan.
+     */
+    private fun refreshTranslation() {
+        Log.d(TAG_OVERLAY, "refresh terjemahan tanpa reload halaman")
+        Toast.makeText(this, R.string.reader_retranslating, Toast.LENGTH_SHORT).show()
+        binding.webView.evaluateJavascript(
+            "window.__mangalensClearOverlays&&window.__mangalensClearOverlays();",
+            null
+        )
+        translatePipeline?.cancel()
+        translationManager?.reset()
+        scanSession.reset()
+        canvasContentHashes.clear()
+        lastSettingsSignature = settingsSignature()
+        injectScanner()
+        // Force rescan: gambar yang sama harus dikirim ulang walau URL/tanda
+        // "sudah dipindai" belum berubah.
+        binding.webView.evaluateJavascript(
+            "window.__mangalensSetActive&&window.__mangalensSetActive(true);" +
+                "window.__mangalensForceRescan?window.__mangalensForceRescan():" +
+                "(window.__mangalensScan&&window.__mangalensScan());",
+            null
+        )
+    }
+
+    private fun openSettings() {
+        // SettingsActivity berada di modul app; Reader tidak boleh bergantung
+        // pada modul app, jadi dibuka lewat nama komponen runtime.
+        val intent = Intent().setClassName(packageName, "com.mangalens.app.SettingsActivity")
+        runCatching { startActivity(intent) }
+            .onFailure { Toast.makeText(this, "Pengaturan tidak tersedia", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun settingsSignature(): String =
+        "${translationSettings.backend}|${translationSettings.sourceTag}|" +
+            "${translationSettings.targetTag}|${translationSettings.autoFallback}|" +
+            "${translationSettings.llmModel}|${translationSettings.llmConfigured}|" +
+            "${translationSettings.inpaintingEnabled}"
+
     private fun render(state: ReaderUiState) {
         binding.titleView.text = state.title.ifBlank { state.url }
         binding.progressBar.progress = state.progress
@@ -308,6 +425,8 @@ class ReaderActivity : AppCompatActivity() {
      */
     private suspend fun extractCanvas(key: String): CanvasCapture? {
         if (isFinishing || isDestroyed) return null
+
+        // 1. Coba ekstraksi asli dari canvas (toDataURL)
         val script = "(function(){try{return window.__mangalensExtractCanvas" +
             "?window.__mangalensExtractCanvas(" + JSONObject.quote(key) + ")" +
             ":JSON.stringify({ok:false,error:'no-extractor'});}" +
@@ -317,13 +436,40 @@ class ReaderActivity : AppCompatActivity() {
             runCatching { JSONObject(it) }.getOrNull()
         }
         if (json != null && json.optBoolean("ok")) {
-            decodeDataUrl(json.optString("url"))?.let { return it }
+            val dataUrl = json.optString("url", "")
+            if (dataUrl.isNotBlank()) {
+                val capture = decodeDataUrl(dataUrl)
+                if (capture != null) {
+                    Log.d(TAG_OVERLAY, "canvas native extraction OK: ${capture.width}x${capture.height}")
+                    // Simpan untuk diagnostik
+                    if (isDebuggableBuild()) {
+                        exportCanvasSample(key + "_native", capture)
+                    }
+                    return capture
+                }
+            }
         } else if (json != null) {
             Log.w(TAG_OVERLAY, "canvas toDataURL gagal: ${json.optString("error")}")
         }
 
-        // Canvas tainted (gambar CDN cross-origin), kosong, atau WebGL: browser
-        // menolak toDataURL. Ambil piksel yang benar-benar dirender WebView.
+        // 2. Cek apakah ada sumber gambar asli yang bisa diambil lewat HTTP
+        val sourceInfo = fetchCanvasSourceImage(key)
+        if (sourceInfo != null && sourceInfo.nativeUrl != null) {
+            Log.d(TAG_OVERLAY, "found native source: ${sourceInfo.nativeUrl} " +
+                "${sourceInfo.nativeWidth}x${sourceInfo.nativeHeight}")
+            // Coba unduh dari URL asli
+            val nativeCapture = tryNativeImageFetch(sourceInfo.nativeUrl, key)
+            if (nativeCapture != null) {
+                Log.d(TAG_OVERLAY, "native fetch OK: ${nativeCapture.width}x${nativeCapture.height}")
+                if (isDebuggableBuild()) {
+                    exportCanvasSample(key + "_native_fetch", nativeCapture)
+                }
+                return nativeCapture
+            }
+        }
+
+        // 3. Fallback: PixelCopy untuk canvas tainted atau tanpa sumber asli
+        Log.d(TAG_OVERLAY, "falling back to PixelCopy for key=$key")
         return CanvasPixelCapture.capture(
             activity = this,
             webView = binding.webView,
@@ -337,7 +483,83 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    private fun isDebuggableBuild(): Boolean =
+    /**
+     * Ambil info sumber gambar dari JavaScript untuk mencoba ekstraksi native.
+     */
+    private suspend fun fetchCanvasSourceImage(key: String): CanvasSourceInfo? {
+        val script = "(function(){try{return window.__mangalensCanvasSourceInfo" +
+            "?window.__mangalensCanvasSourceInfo(" + JSONObject.quote(key) + ")" +
+            ":JSON.stringify({sourceType:'unknown'});}" +
+            "catch(e){return JSON.stringify({sourceType:'error',error:String(e)});}})()"
+
+        val json = evalJs(script)?.let { unquoteJson(it) }?.let {
+            runCatching { JSONObject(it) }.getOrNull()
+        }
+        if (json == null) return null
+
+        val sourceType = json.optString("sourceType", "unknown")
+        if (sourceType == "unknown" || sourceType == "error" || sourceType == "detached") {
+            return null
+        }
+
+        val nativeUrl = json.optString("nativeUrl").ifBlank { null }
+        val nativeWidth = json.optInt("nativeWidth", 0)
+        val nativeHeight = json.optInt("nativeHeight", 0)
+        val canvasTainted = json.optBoolean("canvasTainted", false)
+
+        // Hanya ambil jika ada URL asli dan bukan canvas tainted complex
+        if (sourceType == "native" && !nativeUrl.isNullOrBlank()) {
+            return CanvasSourceInfo(
+                nativeUrl = nativeUrl,
+                nativeWidth = nativeWidth,
+                nativeHeight = nativeHeight,
+                canvasTainted = canvasTainted
+            )
+        }
+
+        return null
+    }
+
+    /**
+     * Coba unduh gambar asli dari URL yang ditemukan.
+     */
+    private suspend fun tryNativeImageFetch(url: String, key: String): CanvasCapture? {
+        try {
+            val context = PageContext(
+                pageUrl = binding.webView.url?.toString() ?: "",
+                userAgent = binding.webView.settings.userAgentString
+            )
+            val fetcher = NativeImageFetcher()
+            val outcome = fetcher.fetch(url, context)
+            when {
+                outcome.isSuccess -> {
+                    val bytes = outcome.bytesOrNull ?: return null
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                        val verdict = validateDecoded(bytes, bounds.outWidth, bounds.outHeight)
+                        if (verdict?.ok != true) {
+                            Log.w(
+                                TAG_OVERLAY,
+                                "native fetch ditolak: ${verdict?.reason ?: "tidak bisa didekode"}"
+                            )
+                            return null
+                        }
+                        Log.d(TAG_OVERLAY, "native fetch berhasil: ${bounds.outWidth}x${bounds.outHeight}")
+                        return CanvasCapture(bytes, bounds.outWidth, bounds.outHeight)
+                    }
+                }
+                !outcome.isSuccess -> {
+                    Log.w(TAG_OVERLAY, "native fetch gagal: ${outcome.reasonOrNull}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG_OVERLAY, "native fetch exception: ${e.message}")
+        }
+        return null
+    }
+
+            private fun isDebuggableBuild(): Boolean =
         (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     private fun exportCanvasSample(key: String, capture: CanvasCapture) {
@@ -380,11 +602,44 @@ class ReaderActivity : AppCompatActivity() {
             Log.w(TAG_OVERLAY, "canvas bukan gambar valid")
             return null
         }
+        // Jalur native juga wajib melewati validasi kualitas yang sama dengan
+        // PixelCopy. Ukuran byte saja tidak membedakan halaman dari canvas kosong.
+        val verdict = validateDecoded(bytes, bounds.outWidth, bounds.outHeight)
+        if (verdict?.ok != true) {
+            Log.w(
+                TAG_OVERLAY,
+                "canvas native ditolak: ${verdict?.reason ?: "tidak bisa didekode"} " +
+                    "${bounds.outWidth}x${bounds.outHeight} ${bytes.size / 1024} KB"
+            )
+            return null
+        }
         Log.d(
             TAG_OVERLAY,
-            "canvas terekstrak ${bounds.outWidth}x${bounds.outHeight} ${bytes.size / 1024} KB"
+            "canvas terekstrak ${bounds.outWidth}x${bounds.outHeight} ${bytes.size / 1024} KB " +
+                "stdDev=${verdict.stdDev} ink=${verdict.inkFraction}"
         )
         return CanvasCapture(bytes, bounds.outWidth, bounds.outHeight)
+    }
+
+    /**
+     * Decode sampel kecil (bukan gambar penuh) lalu jalankan [CanvasQuality].
+     * Bitmap sampel selalu di-recycle; hasil hanya berisi verdict.
+     */
+    private fun validateDecoded(bytes: ByteArray, width: Int, height: Int): CanvasQuality.Verdict? {
+        var sample = 1
+        var longest = maxOf(width, height)
+        while (longest / sample > VALIDATION_MAX_DIMENSION) sample *= 2
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
+            .getOrNull() ?: return null
+        return try {
+            CanvasQuality.validate(bitmap)
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
     }
 
     private fun parseCandidates(json: String): List<DetectedImage> = runCatching {
@@ -417,7 +672,29 @@ class ReaderActivity : AppCompatActivity() {
 
     override fun onPause() {
         CookieManager.getInstance().flush()
+        // Hentikan pemindaian/pemicu redraw selama Reader tidak aktif.
+        binding.webView.evaluateJavascript(
+            "window.__mangalensSetActive&&window.__mangalensSetActive(false)",
+            null
+        )
         super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val signature = settingsSignature()
+        val changed = lastSettingsSignature != null && lastSettingsSignature != signature
+        lastSettingsSignature = signature
+        applyTranslationSettings()
+        if (changed && !binding.webView.url.isNullOrBlank()) {
+            refreshTranslation()
+            return
+        }
+        binding.webView.evaluateJavascript(
+            "window.__mangalensSetActive&&window.__mangalensSetActive(true);" +
+                "window.__mangalensScan&&window.__mangalensScan();",
+            null
+        )
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -459,6 +736,9 @@ class ReaderActivity : AppCompatActivity() {
 
         /** Batas tunggu satu panggilan JavaScript; WebView bisa tidak memanggil balik. */
         private const val JS_EVAL_TIMEOUT_MS = 8_000L
+
+        /** Sisi terpanjang bitmap sampel untuk validasi kualitas. */
+        private const val VALIDATION_MAX_DIMENSION = 720
 
         fun intent(context: Context, url: String): Intent =
             Intent(context, ReaderActivity::class.java).putExtra(EXTRA_URL, url)

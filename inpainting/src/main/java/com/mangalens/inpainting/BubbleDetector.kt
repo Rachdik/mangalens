@@ -10,13 +10,22 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+/** Seberapa yakin batas balon hasil deteksi; menentukan strategi penempatan. */
+enum class BubbleConfidence { HIGH, MEDIUM, LOW }
+
 /** Satu balon teks yang terdeteksi pada gambar manga. */
 data class DetectedBubble(
     val textBounds: Rect,
     val bubbleBounds: Rect,
     val text: String,
     val fillColor: Int,
-    val textColor: Int
+    val textColor: Int,
+    /** ID stabil untuk kelompok teks ini (untuk cache & penggantian overlay). */
+    val id: String = "",
+    val readingOrder: Int = 0,
+    val confidence: BubbleConfidence = BubbleConfidence.MEDIUM,
+    /** Kotak baris teks asli; dipakai untuk mask yang tidak menghapus balon. */
+    val lines: List<Rect> = emptyList()
 )
 
 /**
@@ -107,18 +116,38 @@ object BubbleDetector {
 
             val ring = ringColor(pixels, image.width, image.height, union)
             val fill = ring ?: Color.WHITE
-            val bubble = growBubble(pixels, image.width, image.height, union, fill)
-                ?: padRect(union, image.width, image.height)
+            val grown = growBubble(pixels, image.width, image.height, union, fill)
+            val bubble = grown ?: padRect(union, image.width, image.height)
+            val textArea = union.width().toLong() * union.height()
+            val bubbleArea = bubble.width().toLong() * bubble.height()
+
+            // HIGH: flood fill menemukan balon yang rapat di sekitar teks.
+            // MEDIUM: balon ditemukan tetapi area jauh lebih besar dari teks.
+            // LOW: tidak ada balon; jangan memaksakan kotak tebakan.
+            val confidence = when {
+                grown == null -> BubbleConfidence.LOW
+                textArea > 0 && bubbleArea <= textArea * 3 -> BubbleConfidence.HIGH
+                else -> BubbleConfidence.MEDIUM
+            }
+
+            val lines = group.blocks
+                .flatMap { block -> block.lines.ifEmpty { listOf(block.bounds) } }
+                .map { it.toOriginal(scale) }
+            val idText = text + "@" + union.left + "," + union.top
+            val id = "b" + Integer.toHexString(idText.hashCode())
 
             val textColor = if (luminance(fill) > 150) Color.BLACK else Color.WHITE
             DetectedBubble(
                 textBounds = union.toOriginal(scale),
-                bubbleBounds = bubble.toOriginal(scale),
+                bubbleBounds = if (confidence == BubbleConfidence.LOW) union.toOriginal(scale) else bubble.toOriginal(scale),
                 text = text,
                 fillColor = fill,
-                textColor = textColor
+                textColor = textColor,
+                id = id,
+                confidence = confidence,
+                lines = lines
             )
-        }
+        }.mapIndexed { index, bubble -> bubble.copy(readingOrder = index + 1) }
 
         if (scaled.third) image.recycle()
         return result
@@ -344,6 +373,13 @@ object BubbleDetector {
         val verticalLimit = (reference * 0.9f).toInt()
         if (horizontalGap > horizontalLimit || verticalGap > verticalLimit) return false
 
+        // Jangan gabungkan dua area yang bersama-sama membentuk blok raksasa:
+        // itu biasanya dua panel/balon berbeda, bukan satu dialog.
+        val unionW = max(a.right, b.right) - min(a.left, b.left)
+        val unionH = max(a.bottom, b.bottom) - min(a.top, b.top)
+        val pageArea = width.toLong() * height
+        if (unionW.toLong() * unionH > pageArea * MAX_GROUP_PAGE_FRACTION) return false
+
         // Balon bersebelahan: periksa garis vertikal di celah di antara teks.
         if (horizontalGap > 0 && verticalGap == 0) {
             val stripLeft = min(a.right, b.right)
@@ -492,4 +528,7 @@ object BubbleDetector {
 
     /** Di bawah kecerahan ini piksel dianggap tinta/garis balon. */
     private const val INK_LUMA = 110
+
+    /** Batas luas gabungan satu kelompok terhadap luas halaman analisis. */
+    private const val MAX_GROUP_PAGE_FRACTION = 0.22
 }

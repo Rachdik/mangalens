@@ -19,9 +19,11 @@
     <string name="provider_label">Provider terjemahan</string>
     <string name="provider_hint_mlkit">ML Kit on-device: offline, tanpa kunci API.</string>
     <string name="provider_hint_llm">LLM aktif · model %1$s</string>
-    <string name="provider_hint_llm_missing">Kunci API belum ada. Isi LLM_API_KEY di file .env lalu build ulang.</string>
+    <string name="provider_hint_llm_missing">Kunci API belum ada. Ketuk keterangan ini untuk menyimpannya secara terenkripsi (tidak masuk APK).</string>
     <string name="provider_hint_mymemory">MyMemory gratis tanpa kunci API. Hasil bervariasi; bila gagal, coba provider lain.</string>
-    <string name="llm_missing_key">Provider LLM dipilih, tetapi kunci API belum diisi. Isi LLM_API_KEY di file .env lalu build ulang.</string>
+    <string name="provider_hint_gemini">Gemini aktif · model %1$s</string>
+    <string name="provider_hint_gemini_missing">Kunci API Gemini belum ada. Ketuk keterangan ini untuk menyimpannya secara terenkripsi (tidak masuk APK).</string>
+    <string name="llm_missing_key">Provider LLM dipilih, tetapi kunci API belum diisi. Ketuk keterangan provider untuk menyimpan kunci.</string>
     <string name="start_bubble">Aktifkan Bubble</string>
     <string name="stop_bubble">Matikan Bubble</string>
     <string name="overlay_permission_needed">Izinkan "Tampil di atas aplikasi lain" agar bubble bisa muncul.</string>
@@ -31,4 +33,36 @@
     <string name="appearance_title">Warna &amp; mode</string>
     <string name="appearance_summary">%1$s • %2$s</string>
     <string name="version_watermark">MangaLens • v%1$s</string>
+    <string name="settings_title">Pengaturan</string>
+    <string name="open_settings">Buka Pengaturan</string>
+    <string name="reader_reload_page">Muat ulang halaman</string>
+    <string name="reader_retranslate">Terjemahkan ulang</string>
+    <string name="reader_settings">Pengaturan</string>
+    <string name="reader_reloading">Memuat ulang halaman…</string>
+    <string name="reader_retranslating">Memproses ulang terjemahan halaman…</string>
+
+    <!-- Floating Translator -->
+    <string name="floating_title">MangaLens</string>
+    <string name="floating_refresh">Refresh</string>
+    <string name="floating_pause">Dijeda</string>
+    <string name="floating_resume">Lanjutkan</string>
+    <string name="floating_settings">Pengaturan</string>
+    <string name="floating_close">Tutup</string>
+    <string name="floating_status_waiting">Menunggu…</string>
+    <string name="floating_status_scanning">Memindai…</string>
+    <string name="floating_status_reading">Membaca teks…</string>
+    <string name="floating_status_translating">Menerjemahkan…</string>
+    <string name="floating_status_displaying">Menampilkan hasil</string>
+    <string name="floating_status_failed">Gagal</string>
+    <string name="floating_tap_desc">Ketuk untuk menerjemahkan layar</string>
+    <string name="floating_long_press_desc">Ketuk lama untuk berhenti</string>
+    <string name="floating_pause_desc">Jeda pemrosesan</string>
+    <string name="floating_refresh_desc">Perbarui terjemahan</string>
+    <string name="floating_settings_desc">Pengaturan tampilan</string>
+    <string name="floating_loading">Memuat</string>
+    <string name="display_title">Tampilan Terjemahan</string>
+    <string name="display_opacity_label">Opacity Background</string>
+    <string name="display_text_size_label">Ukuran Teks</string>
+    <string name="display_text_color_label">Warna Teks</string>
+    <string name="display_bg_color_label">Warna Background</string>
 </resources>

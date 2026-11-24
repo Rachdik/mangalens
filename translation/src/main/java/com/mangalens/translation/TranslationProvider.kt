@@ -2,11 +2,25 @@ package com.mangalens.translation
 
 data class TranslationRequest(
     val id: String,
-    val text: String
+    val text: String,
+    /**
+     * Dialog sebelumnya sebagai konteks. Setiap request tetap menghasilkan
+     * terjemahannya sendiri; konteks tidak boleh ikut diterjemahkan.
+     */
+    val context: String? = null
+)
+
+data class TokenUsage(
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val totalTokens: Int? = null
 )
 
 sealed interface TranslateResult {
-    data class Success(val texts: Map<String, String>) : TranslateResult
+    data class Success(
+        val texts: Map<String, String>,
+        val usage: TokenUsage? = null
+    ) : TranslateResult
     data class Failure(val message: String) : TranslateResult
 }
 

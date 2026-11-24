@@ -13,6 +13,9 @@ object FloatingTranslate {
     const val ACTION_START = "com.mangalens.floating.action.START"
     const val ACTION_STOP = "com.mangalens.floating.action.STOP"
 
+    /** Tampilkan kembali bubble setelah layar Settings ditutup. */
+    const val ACTION_RESHOW = "com.mangalens.floating.action.RESHOW"
+
     const val EXTRA_RESULT_CODE = "result_code"
     const val EXTRA_RESULT_DATA = "result_data"
 
@@ -24,6 +27,10 @@ object FloatingTranslate {
 
     @Volatile
     var isRunning: Boolean = false
+        internal set
+
+    @Volatile
+    var isPaused: Boolean = false
         internal set
 
     fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)

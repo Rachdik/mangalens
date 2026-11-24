@@ -140,24 +140,26 @@ class ImageScanSession(
             val outcome = fetcher.fetch(image.url, pageContext())
             if (startedGeneration != generation) return
 
-            when (outcome) {
-                is FetchOutcome.Success -> {
-                    val file = store.write(image.key, outcome.bytes, outcome.contentType)
+            when {
+                outcome.isSuccess -> {
+                    val bytes = outcome.bytesOrNull ?: return
+                    val file = store.write(image.key, bytes, outcome.contentType)
                     if (startedGeneration == generation) {
                         setState(
                             image.key,
-                            ImageDownloadState.Ready(file, outcome.bytes.size.toLong(), outcome.contentType)
+                            ImageDownloadState.Ready(file, bytes.size.toLong(), outcome.contentType)
                         )
                     }
                 }
 
-                is FetchOutcome.Failure -> {
+                !outcome.isSuccess -> {
                     // Alasan kegagalan dicatat (tanpa URL lengkap/isi gambar) agar
                     // halaman yang tidak diterjemahkan bisa didiagnosis dari Logcat.
-                    android.util.Log.w("MangaLensScan", "unduh gagal: ${outcome.reason}")
+                    val reason = outcome.reasonOrNull ?: "Tidak diketahui"
+                    android.util.Log.w("MangaLensScan", "unduh gagal: $reason")
                     setState(
                         image.key,
-                        ImageDownloadState.Failed(outcome.reason)
+                        ImageDownloadState.Failed(reason)
                     )
                 }
             }

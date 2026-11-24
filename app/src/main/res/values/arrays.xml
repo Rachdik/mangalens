@@ -35,10 +35,42 @@
         <item>Arab</item>
     </string-array>
 
-    <!-- Urutan harus sama dengan enum TranslationBackend (ML_KIT, LLM, MY_MEMORY). -->
+    <!-- Urutan harus sama dengan enum TranslationBackend (ML_KIT, LLM, GEMINI, MY_MEMORY). -->
     <string-array name="translation_providers">
         <item>ML Kit (offline)</item>
         <item>LLM (OpenAI-compatible)</item>
+        <item>Gemini (Google)</item>
         <item>MyMemory (gratis)</item>
+    </string-array>
+
+    <!-- Urutan harus sama dengan enum OverlayOpacity. -->
+    <string-array name="overlay_opacity_options">
+        <item>0% (transparan)</item>
+        <item>25%</item>
+        <item>50%</item>
+        <item>75%</item>
+        <item>100%</item>
+    </string-array>
+
+    <!-- Urutan harus sama dengan enum TextSize. -->
+    <string-array name="text_size_options">
+        <item>Kecil</item>
+        <item>Normal</item>
+        <item>Besar</item>
+    </string-array>
+
+    <!-- Urutan harus sama dengan enum TextColor. -->
+    <string-array name="text_color_options">
+        <item>Otomatis</item>
+        <item>Putih</item>
+        <item>Hitam</item>
+    </string-array>
+
+    <!-- Urutan harus sama dengan enum BackgroundColor. -->
+    <string-array name="background_color_options">
+        <item>Otomatis</item>
+        <item>Putih</item>
+        <item>Hitam</item>
+        <item>Transparan</item>
     </string-array>
 </resources>

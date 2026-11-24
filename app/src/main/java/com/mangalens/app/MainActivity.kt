@@ -12,7 +12,9 @@ import android.provider.Settings
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.AdapterView
+import android.widget.EditText
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import android.graphics.drawable.GradientDrawable
@@ -93,6 +95,8 @@ class MainActivity : ThemedActivity() {
         setupProviderSpinner()
         setupLanguageSpinners()
         setupAppearance()
+        binding.settingsButton.setOnClickListener { openSettings() }
+        binding.openSettingsButton.setOnClickListener { openSettings() }
 
         historyAdapter = HistoryAdapter { entry -> openReader(entry.url) }
         binding.historyList.apply {
@@ -165,6 +169,35 @@ class MainActivity : ThemedActivity() {
     override fun onResume() {
         super.onResume()
         updateFloatingButton()
+        syncFromSettings()
+    }
+
+    private fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    /**
+     * Pengaturan dapat diubah dari layar Settings; spinner dan ringkasan harus
+     * mengikuti tanpa perlu menutup aplikasi.
+     */
+    private fun syncFromSettings() {
+        syncingSettings = true
+        runCatching {
+            binding.providerSpinner.setSelection(translationSettings.backend.ordinal)
+            binding.scriptSpinner.setSelection(
+                sourceLanguages.indexOf(translationSettings.sourceTag).coerceAtLeast(0)
+            )
+            binding.targetSpinner.setSelection(
+                targetLanguages.indexOf(translationSettings.targetTag).coerceAtLeast(0)
+            )
+        }
+        syncingSettings = false
+        updateProviderHint()
+        binding.themeSummary.text = getString(
+            R.string.appearance_summary,
+            ThemeStore.accent.label,
+            ThemeStore.mode.label
+        )
     }
 
     private fun renderHistory(items: List<HistoryEntry>) {
@@ -237,8 +270,9 @@ class MainActivity : ThemedActivity() {
             return
         }
 
-        if (translationSettings.backend == TranslationBackend.LLM &&
-            !TranslationSettings.llmConfigured
+        if ((translationSettings.backend == TranslationBackend.LLM ||
+                translationSettings.backend == TranslationBackend.GEMINI) &&
+            !translationSettings.llmConfigured
         ) {
             // Bubble tetap boleh dinyalakan; pesan ini menjelaskan kenapa
             // terjemahan akan gagal sampai kunci API diisi.
@@ -289,14 +323,73 @@ class MainActivity : ThemedActivity() {
                     position: Int,
                     id: Long
                 ) {
+                    if (syncingSettings) return
                     translationSettings.backend = TranslationBackend.values()
                         .getOrElse(position) { TranslationBackend.ML_KIT }
                     updateProviderHint()
+                    if ((translationSettings.backend == TranslationBackend.LLM ||
+                            translationSettings.backend == TranslationBackend.GEMINI) &&
+                        !translationSettings.llmConfigured
+                    ) {
+                        promptForLlmKey()
+                    }
                 }
 
                 override fun onNothingSelected(parent: AdapterView<*>?) = Unit
             }
         updateProviderHint()
+        // Ketuk keterangan provider untuk mengganti/menghapus kunci API.
+        binding.providerHint.setOnClickListener {
+            if (translationSettings.backend == TranslationBackend.LLM ||
+                translationSettings.backend == TranslationBackend.GEMINI) promptForLlmKey()
+        }
+    }
+
+    /** Kunci API disimpan terenkripsi; tidak pernah masuk BuildConfig/APK. */
+    private fun promptForLlmKey() {
+        val density = resources.displayMetrics.density
+        val input = EditText(this).apply {
+            hint = "API key"
+            setSingleLine()
+            setText(translationSettings.llmApiKey)
+            setPadding(
+                (16 * density).toInt(),
+                (10 * density).toInt(),
+                (16 * density).toInt(),
+                (10 * density).toInt()
+            )
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(input)
+        }
+        val backendName = when (translationSettings.backend) {
+            TranslationBackend.GEMINI -> "Gemini"
+            else -> "LLM"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Kunci API $backendName")
+            .setMessage(
+                "Kunci disimpan terenkripsi di perangkat dan tidak pernah " +
+                    "dimasukkan ke APK atau Logcat. Endpoint/model memakai " +
+                    "${translationSettings.llmBaseUrl} · ${translationSettings.llmModel}."
+            )
+            .setView(container)
+            .setPositiveButton("Simpan") { _, _ ->
+                translationSettings.llmApiKey = input.text.toString()
+                updateProviderHint()
+                toast(
+                    if (translationSettings.llmConfigured) "Kunci API disimpan."
+                    else "Kunci API kosong."
+                )
+            }
+            .setNeutralButton("Hapus") { _, _ ->
+                translationSettings.llmApiKey = ""
+                updateProviderHint()
+                toast("Kunci API dihapus.")
+            }
+            .setNegativeButton("Batal", null)
+            .show()
     }
 
     private fun setupLanguageSpinners() {
@@ -311,6 +404,7 @@ class MainActivity : ThemedActivity() {
                     position: Int,
                     id: Long
                 ) {
+                    if (syncingSettings) return
                     translationSettings.sourceTag =
                         sourceLanguages.getOrElse(position) { "auto" }
                 }
@@ -329,6 +423,7 @@ class MainActivity : ThemedActivity() {
                     position: Int,
                     id: Long
                 ) {
+                    if (syncingSettings) return
                     translationSettings.targetTag =
                         targetLanguages.getOrElse(position) { "id" }
                 }
@@ -340,14 +435,20 @@ class MainActivity : ThemedActivity() {
     private fun updateProviderHint() {
         binding.providerHint.text = when (translationSettings.backend) {
             TranslationBackend.LLM ->
-                if (TranslationSettings.llmConfigured) {
-                    getString(R.string.provider_hint_llm, TranslationSettings.llmModel)
+                if (translationSettings.llmConfigured) {
+                    getString(R.string.provider_hint_llm, translationSettings.llmModel)
                 } else {
                     getString(R.string.provider_hint_llm_missing)
                 }
 
             TranslationBackend.ML_KIT -> getString(R.string.provider_hint_mlkit)
             TranslationBackend.MY_MEMORY -> getString(R.string.provider_hint_mymemory)
+            TranslationBackend.GEMINI ->
+                if (translationSettings.llmConfigured) {
+                    getString(R.string.provider_hint_gemini, translationSettings.llmModel)
+                } else {
+                    getString(R.string.provider_hint_gemini_missing)
+                }
         }
     }
 
@@ -373,101 +474,12 @@ class MainActivity : ThemedActivity() {
         // Versi diambil dari BuildConfig (versionName Gradle) — tidak pernah
         // ditulis manual, jadi watermark selalu sama dengan APK yang berjalan.
         binding.watermark.text = getString(R.string.version_watermark, BuildConfig.VERSION_NAME)
-        renderAppearance()
-    }
-
-    private fun renderAppearance() {
-        val accent = ThemeStore.accent
-        val mode = ThemeStore.mode
-        binding.themeSummary.text = getString(R.string.appearance_summary, accent.label, mode.label)
-
-        binding.accentRow.removeAllViews()
-        for (option in AccentTheme.values()) {
-            binding.accentRow.addView(buildAccentDot(option, option == accent))
-        }
-
-        binding.modeRow.removeAllViews()
-        for (option in ThemeMode.values()) {
-            binding.modeRow.addView(buildModeChip(option, option == mode))
-        }
-    }
-
-    /** Swatch bulat sebagai pratinjau warna sebelum dipilih. */
-    private fun buildAccentDot(option: AccentTheme, selected: Boolean): View {
-        val size = (36 * resources.displayMetrics.density).toInt()
-        val margin = (5 * resources.displayMetrics.density).toInt()
-        val dot = View(this)
-        val params = LinearLayout.LayoutParams(size, size).apply {
-            marginEnd = margin
-            marginStart = margin
-        }
-        dot.layoutParams = params
-        val shape = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(option.previewColor)
-            if (selected) {
-                setStroke((3 * resources.displayMetrics.density).toInt(), 0xFF171725.toInt())
-            } else {
-                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
-            }
-        }
-        dot.background = shape
-        dot.contentDescription = option.label
-        dot.isClickable = true
-        dot.isFocusable = true
-        dot.setOnClickListener {
-            MangaLensTheme.select(option, ThemeStore.mode)
-            // recreate() memakai tema baru karena ThemedActivity menerapkannya
-            // sebelum layout di-inflate.
-            recreate()
-        }
-        return dot
-    }
-
-    private fun buildModeChip(option: ThemeMode, selected: Boolean): TextView {
-        val density = resources.displayMetrics.density
-        val chip = TextView(this)
-        chip.text = option.label
-        chip.textSize = 13f
-        chip.gravity = android.view.Gravity.CENTER
-        val horizontal = (14 * density).toInt()
-        val vertical = (8 * density).toInt()
-        chip.setPadding(horizontal, vertical, horizontal, vertical)
-        chip.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { marginEnd = (8 * density).toInt() }
-        val shape = GradientDrawable().apply {
-            cornerRadius = 20 * density
-            if (selected) {
-                setColor(resolveThemeColor(androidx.appcompat.R.attr.colorPrimary))
-                setStroke((1 * density).toInt(), resolveThemeColor(androidx.appcompat.R.attr.colorPrimary))
-            } else {
-                setColor(resolveThemeColor(com.mangalens.ui.R.attr.colorPrimaryLight))
-                setStroke((1 * density).toInt(), resolveThemeColor(android.R.attr.textColorSecondary))
-            }
-        }
-        chip.background = shape
-        chip.setTextColor(
-            if (selected) 0xFFFFFFFF.toInt()
-            else resolveThemeColor(android.R.attr.textColorPrimary)
+        binding.themeSummary.text = getString(
+            R.string.appearance_summary,
+            ThemeStore.accent.label,
+            ThemeStore.mode.label
         )
-        chip.isClickable = true
-        chip.isFocusable = true
-        chip.setOnClickListener {
-            MangaLensTheme.select(ThemeStore.accent, option)
-            recreate()
-        }
-        return chip
     }
 
-    private fun resolveThemeColor(attr: Int): Int {
-        val typed = obtainStyledAttributes(intArrayOf(attr))
-        val color = try {
-            typed.getColor(0, 0xFF000000.toInt())
-        } finally {
-            typed.recycle()
-        }
-        return color
-    }
+    private var syncingSettings = false
 }

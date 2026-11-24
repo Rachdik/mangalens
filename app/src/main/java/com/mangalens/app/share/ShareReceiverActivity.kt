@@ -234,7 +234,11 @@ class ShareReceiverActivity : com.mangalens.app.ThemedActivity() {
                             // Factory yang sama dipakai Reader: satu implementasi OCR
                             // + terjemahan untuk kedua jalur masuk.
                             com.mangalens.translation.TranslationProviders.create(
-                                translationSettings.backend, source, target
+                                translationSettings.backend,
+                                source,
+                                target,
+                                translationSettings.llmConfig(),
+                                autoFallback = translationSettings.autoFallback
                             )
                         }
                     )
@@ -295,6 +299,7 @@ class ShareReceiverActivity : com.mangalens.app.ThemedActivity() {
             appendLine("Diterjemahkan ${bubbles.size} teks:")
             appendLine()
             appendLine("Bahasa: ${result.sourceTag} -> ${translationSettings.targetTag}")
+            appendLine("Provider: ${result.providerName.ifBlank { translationSettings.backend.name }}")
             appendLine("OCR: ${result.ocrBlocks} blok, ${result.detectedBubbles} balon")
             appendLine()
             appendLine("-".repeat(40))

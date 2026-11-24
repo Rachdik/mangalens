@@ -40,6 +40,44 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/reloadButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:clickable="true"
+            android:contentDescription="@string/reader_reload_page"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="↻"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/retranslateButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:clickable="true"
+            android:contentDescription="@string/reader_retranslate"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="⟳"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="21sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/readerSettingsButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:clickable="true"
+            android:contentDescription="@string/reader_settings"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="⚙"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="20sp" />
+
+        <TextView
             android:id="@+id/imageCountButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

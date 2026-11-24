@@ -19,7 +19,11 @@ data class RecognizedBlock(
     val text: String,
     val bounds: Rect,
     val order: Int,
-    val orientation: TextOrientation = TextOrientation.UNKNOWN
+    val orientation: TextOrientation = TextOrientation.UNKNOWN,
+    /** Kotak tiap baris; dipakai untuk mask inpainting yang mengikuti teks. */
+    val lines: List<Rect> = emptyList(),
+    /** Kotak tiap elemen/kata bila engine menyediakannya (mask lebih rapat). */
+    val elements: List<Rect> = emptyList()
 )
 
 /**

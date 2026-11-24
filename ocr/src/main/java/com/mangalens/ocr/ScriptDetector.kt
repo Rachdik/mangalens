@@ -44,7 +44,8 @@ object ScriptDetector {
 
     /** Kode bahasa BCP-47 untuk ML Kit Translation. */
     fun languageTag(script: LanguageScript): String = when (script) {
-        LanguageScript.AUTO, LanguageScript.LATIN -> "en"
+        LanguageScript.AUTO -> "auto"
+        LanguageScript.LATIN -> "en"
         LanguageScript.JAPANESE -> "ja"
         LanguageScript.KOREAN -> "ko"
         LanguageScript.CHINESE -> "zh"

@@ -52,11 +52,13 @@ class BasicInpaintingEngine(
         val maskPixels = IntArray(width * height)
         mask.getPixels(maskPixels, 0, width, 0, 0, width, height)
 
-        val bbox = boundingBoxOf(maskPixels, width, height) ?: return result
-        fillFromEdges(pixels, maskPixels, width, height, bbox)
-
-        if (softenEdges) {
-            softenBoundary(pixels, maskPixels, width, height, bbox, blurRadius)
+        val components = componentsOf(maskPixels, width, height)
+        if (components.isEmpty()) return result
+        for (bbox in components) {
+            fillFromEdges(pixels, maskPixels, width, height, bbox)
+            if (softenEdges) {
+                softenBoundary(pixels, maskPixels, width, height, bbox, blurRadius)
+            }
         }
 
         result.setPixels(pixels, 0, width, 0, 0, width, height)
@@ -293,6 +295,49 @@ class BasicInpaintingEngine(
     private fun isMasked(color: Int): Boolean {
         val luminance = (Color.red(color) + Color.green(color) + Color.blue(color)) / 3
         return luminance > MASK_LUMINANCE_THRESHOLD
+    }
+
+    /**
+     * Kumpulkan komponen terhubung (4 arah) dari piksel mask. Setiap komponen
+     * diproses terpisah agar area teks yang berjauhan tidak menyatu.
+     */
+    private fun componentsOf(maskPixels: IntArray, width: Int, height: Int): List<Rect> {
+        val seen = BooleanArray(maskPixels.size)
+        val result = mutableListOf<Rect>()
+        for (startY in 0 until height) {
+            for (startX in 0 until width) {
+                val startIndex = startY * width + startX
+                if (seen[startIndex] || !isMasked(maskPixels[startIndex])) continue
+                var minX = startX
+                var minY = startY
+                var maxX = startX
+                var maxY = startY
+                val queue = ArrayDeque<Int>()
+                queue.add(startIndex)
+                seen[startIndex] = true
+                while (queue.isNotEmpty()) {
+                    val index = queue.removeFirst()
+                    val x = index % width
+                    val y = index / width
+                    if (x < minX) minX = x
+                    if (y < minY) minY = y
+                    if (x > maxX) maxX = x
+                    if (y > maxY) maxY = y
+                    val neighbors = intArrayOf(index - 1, index + 1, index - width, index + width)
+                    for (neighbor in neighbors) {
+                        if (neighbor < 0 || neighbor >= maskPixels.size) continue
+                        val nx = neighbor % width
+                        val ny = neighbor / width
+                        if (kotlin.math.abs(nx - x) + kotlin.math.abs(ny - y) != 1) continue
+                        if (seen[neighbor] || !isMasked(maskPixels[neighbor])) continue
+                        seen[neighbor] = true
+                        queue.add(neighbor)
+                    }
+                }
+                result += Rect(minX, minY, maxX + 1, maxY + 1)
+            }
+        }
+        return result
     }
 
     private fun boundingBoxOf(maskPixels: IntArray, width: Int, height: Int): Rect? {

@@ -16,14 +16,35 @@
         android:paddingEnd="22dp"
         android:paddingBottom="26dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:letterSpacing="0.01"
-            android:text="@string/app_name"
-            android:textColor="@color/mangalens_on_primary"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:letterSpacing="0.01"
+                android:text="@string/app_name"
+                android:textColor="@color/mangalens_on_primary"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/settingsButton"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_chip_header"
+                android:clickable="true"
+                android:contentDescription="@string/settings_title"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="⚙"
+                android:textColor="@color/mangalens_on_primary"
+                android:textSize="22sp" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
@@ -312,19 +333,20 @@
                 android:textColor="@color/mangalens_muted"
                 android:textSize="12sp" />
 
-            <LinearLayout
-                android:id="@+id/accentRow"
+            <TextView
+                android:id="@+id/openSettingsButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="44dp"
                 android:layout_marginTop="10dp"
-                android:orientation="horizontal" />
-
-            <LinearLayout
-                android:id="@+id/modeRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal" />
+                android:background="@drawable/bg_button_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="@string/open_settings"
+                android:textAllCaps="false"
+                android:textColor="@color/mangalens_on_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout

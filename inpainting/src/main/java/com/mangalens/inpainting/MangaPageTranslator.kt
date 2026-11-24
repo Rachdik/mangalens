@@ -3,12 +3,14 @@ package com.mangalens.inpainting
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
+import android.util.Log
 import com.mangalens.ocr.LanguageScript
 import com.mangalens.ocr.OcrEngine
 import com.mangalens.ocr.RecognizedBlock
 import com.mangalens.ocr.ScriptDetector
 import com.mangalens.translation.MlKitTranslationProvider
 import com.mangalens.translation.TranslateResult
+import com.mangalens.translation.TokenUsage
 import com.mangalens.translation.TranslationProvider
 import com.mangalens.translation.TranslationRequest
 import kotlin.math.max
@@ -16,14 +18,20 @@ import kotlin.math.min
 
 /** Hasil terjemahan satu balon, lengkap dengan posisi & warna balon aslinya. */
 data class TranslatedBubble(
-    /** Area balon penuh; dipakai sebagai batas luar tempelan. */
+    /** Area balon penuh; hanya batas aman, bukan area yang dicat penuh. */
     val bounds: Rect,
     /** Area teks asli; tempelan dibuat seukuran ini agar tidak menutupi gambar. */
     val textBounds: Rect,
     val sourceText: String,
     val targetText: String,
     val fillColor: Int,
-    val textColor: Int
+    val textColor: Int,
+    /** ID stabil kelompok teks; mencegah hasil lama dipakai untuk konten baru. */
+    val id: String = "",
+    val readingOrder: Int = 0,
+    val confidence: BubbleConfidence = BubbleConfidence.MEDIUM,
+    /** Kotak baris teks asli untuk mask inpainting. */
+    val textLines: List<Rect> = emptyList()
 )
 
 /**
@@ -34,7 +42,11 @@ data class PageTranslation(
     val bubbles: List<TranslatedBubble>,
     val ocrBlocks: Int,
     val detectedBubbles: Int,
-    val sourceTag: String
+    val sourceTag: String,
+    val targetTag: String = "",
+    /** Provider yang benar-benar dipakai (bukan sekadar pilihan tersimpan). */
+    val providerName: String = "",
+    val usage: TokenUsage? = null
 )
 
 /**
@@ -68,7 +80,7 @@ class MangaPageTranslator(
     ): PageTranslation {
         val blocks = ocr.recognize(bitmap, script)
         if (blocks.isEmpty()) {
-            return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script))
+            return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script), targetTag)
         }
 
         // Blok tanpa huruf/angka yang cukup (garis, titik, nomor halaman)
@@ -79,7 +91,7 @@ class MangaPageTranslator(
                 it.bounds.height() > 2
         }
         if (usable.isEmpty()) {
-            return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script))
+            return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script), targetTag)
         }
 
         val joined = usable.joinToString(" ") { it.text }
@@ -90,26 +102,40 @@ class MangaPageTranslator(
         val regions = buildRegions(bitmap, usable, bubbles)
         if (regions.isEmpty() || tag == targetTag) {
             // Bahasa sumber sama dengan tujuan: tidak ada yang perlu diterjemahkan.
-            return PageTranslation(emptyList(), usable.size, bubbles.size, tag)
+            return PageTranslation(emptyList(), usable.size, bubbles.size, tag, targetTag)
         }
 
         val translationProvider = providerFor(tag, targetTag)
+        val providerName = translationProvider.displayName
+        Log.d(
+            TAG,
+            "provider=$providerName source=$tag target=$targetTag regions=${regions.size}"
+        )
         if (!translationProvider.prepare()) {
             throw IllegalStateException(
                 "Provider ${translationProvider.displayName} belum siap. " +
-                    "Untuk LLM, isi LLM_API_KEY di file .env lalu build ulang; " +
+                    "Untuk LLM, buka pengaturan provider lalu simpan kunci API; " +
                     "untuk ML Kit, sambungkan internet sekali lalu ketuk bubble lagi."
             )
         }
 
         val requests = regions.mapIndexed { index, region ->
-            TranslationRequest(index.toString(), region.text)
+            // Konteks hanya dialog sebelumnya; hasil tiap bubble tetap terpisah.
+            val context = if (index == 0) {
+                null
+            } else {
+                regions.subList(max(0, index - 2), index)
+                    .joinToString(" / ") { it.text }
+                    .take(600)
+                    .ifBlank { null }
+            }
+            TranslationRequest(region.id, region.text, context)
         }
 
         return when (val result = translationProvider.translate(requests)) {
             is TranslateResult.Success -> {
-                val translated = regions.mapIndexedNotNull { index, region ->
-                    val target = result.texts[index.toString()]?.trim().orEmpty()
+                val translated = regions.mapNotNull { region ->
+                    val target = result.texts[region.id]?.trim().orEmpty()
                     if (target.isEmpty() || target.equals(region.text, ignoreCase = true)) {
                         null
                     } else {
@@ -119,11 +145,23 @@ class MangaPageTranslator(
                             sourceText = region.text,
                             targetText = target,
                             fillColor = region.fillColor,
-                            textColor = region.textColor
+                            textColor = region.textColor,
+                            id = region.id,
+                            readingOrder = region.readingOrder,
+                            confidence = region.confidence,
+                            textLines = region.lines
                         )
                     }
                 }
-                PageTranslation(translated, usable.size, bubbles.size, tag)
+                PageTranslation(
+                    translated,
+                    usable.size,
+                    bubbles.size,
+                    tag,
+                    targetTag,
+                    providerName,
+                    result.usage
+                )
             }
 
             is TranslateResult.Failure -> throw IllegalStateException(result.message)
@@ -152,7 +190,9 @@ class MangaPageTranslator(
         val mask = createMask(
             width = bitmap.width,
             height = bitmap.height,
-            textBounds = result.bubbles.map { it.textBounds }
+            textBounds = result.bubbles.flatMap { bubble ->
+                bubble.textLines.ifEmpty { listOf(bubble.textBounds) }
+            }
         )
         val inpainted = try {
             inpaintingEngine.inpaint(bitmap, mask)
@@ -173,7 +213,10 @@ class MangaPageTranslator(
         java.util.Arrays.fill(pixels, Color.BLACK)
 
         for (rect in textBounds) {
-            val pad = max(2, (rect.height() * MASK_DILATION).toInt())
+            // Mask mengikuti kotak baris teks (bukan seluruh balon). Pelebaran
+            // kecil menutup anti-aliasing huruf tanpa menghapus garis balon,
+            // screentone, atau ilustrasi di sekitarnya.
+            val pad = max(2, (rect.height() * MASK_DILATION).toInt()).coerceAtMost(8)
             paintRect(
                 pixels,
                 width,
@@ -208,32 +251,56 @@ class MangaPageTranslator(
         blocks: List<RecognizedBlock>,
         bubbles: List<DetectedBubble>
     ): List<Region> {
-        val regions = bubbles
-            .map {
-                Region(
-                    bounds = it.bubbleBounds,
-                    textBounds = it.textBounds,
-                    text = it.text,
-                    fillColor = it.fillColor,
-                    textColor = it.textColor
-                )
-            }
-            .toMutableList()
+        val regions = bubbles.map { bubble ->
+            Region(
+                id = bubble.id,
+                bounds = bubble.bubbleBounds,
+                textBounds = bubble.textBounds,
+                text = bubble.text,
+                fillColor = bubble.fillColor,
+                textColor = bubble.textColor,
+                confidence = bubble.confidence,
+                lines = bubble.lines.ifEmpty { listOf(bubble.textBounds) },
+                maskRects = bubble.lines.ifEmpty { listOf(bubble.textBounds) },
+                readingOrder = bubble.readingOrder
+            )
+        }.toMutableList()
         val bubbleTextBounds = bubbles.map { it.textBounds }
 
         for (block in blocks) {
             val text = block.text.trim()
             if (text.isEmpty()) continue
-            val insideBubble = bubbleTextBounds.any { overlapFraction(block.bounds, it) >= 0.5f }
+            val insideBubble = bubbleTextBounds.any { overlapFraction(block.bounds, it) >= 0.45f }
             if (insideBubble) continue
 
             val bounds = padBlock(block.bounds, bitmap.width, bitmap.height)
             val (fill, textColor) = BubbleDetector.surroundings(bitmap, block.bounds)
-            regions += Region(bounds, block.bounds, text, fill, textColor)
+            val lines = block.lines.ifEmpty { listOf(block.bounds) }
+            val idText = text + "@" + block.bounds.left + "," + block.bounds.top
+            regions += Region(
+                id = "t" + Integer.toHexString(idText.hashCode()),
+                bounds = bounds,
+                textBounds = block.bounds,
+                text = text,
+                fillColor = fill,
+                textColor = textColor,
+                confidence = BubbleConfidence.LOW,
+                lines = lines,
+                maskRects = block.elements.ifEmpty { lines }
+            )
         }
 
-        return regions
-            .sortedWith(compareBy({ it.bounds.top }, { it.bounds.left }))
+        val verticalBlocks = blocks.count { it.orientation == com.mangalens.ocr.TextOrientation.VERTICAL }
+        val horizontalBlocks = blocks.count { it.orientation == com.mangalens.ocr.TextOrientation.HORIZONTAL }
+        val vertical = verticalBlocks > horizontalBlocks
+        val sorted = if (vertical) {
+            // Manga Jepang: kanan ke kiri, lalu atas ke bawah.
+            regions.sortedWith(compareBy({ -it.bounds.right }, { it.bounds.top }))
+        } else {
+            regions.sortedWith(compareBy({ it.bounds.top }, { it.bounds.left }))
+        }
+        return sorted
+            .mapIndexed { index, region -> region.copy(readingOrder = index + 1) }
             .take(MAX_REGIONS)
     }
 
@@ -275,14 +342,21 @@ class MangaPageTranslator(
     }
 
     private data class Region(
+        val id: String,
         val bounds: Rect,
         val textBounds: Rect,
         val text: String,
         val fillColor: Int,
-        val textColor: Int
+        val textColor: Int,
+        val confidence: BubbleConfidence,
+        val lines: List<Rect>,
+        val maskRects: List<Rect>,
+        val readingOrder: Int = 0
     )
 
     private companion object {
+        const val TAG = "MangaLensMT"
+
         const val MAX_REGIONS = 40
 
         /** Pelebaran mask relatif terhadap tinggi kotak teks. */

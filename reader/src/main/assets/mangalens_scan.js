@@ -16,6 +16,66 @@
     var scanTimer = null;
     var overlayTimer = null;
 
+    // ---------------------------------------------------------------
+    // Deteksi repaint canvas tanpa polling per frame
+    // ---------------------------------------------------------------
+    // Metode gambar 2D dipasangi penghitung per elemen canvas. Setiap paint
+    // menaikkan nomor revisi elemen; revisi ikut masuk ke key canvas tainted
+    // (yang tidak bisa di-hash isinya) sehingga redraw benar-benar diproses
+    // ulang, tanpa memindai setiap frame.
+    var paintHooksInstalled = false;
+
+    function noteCanvasPaint(canvas) {
+        if (!canvas || canvas.tagName !== 'CANVAS') return;
+        // Hanya canvas yang sudah terdaftar sebagai kandidat yang dilacak;
+        // ini menghindari pemindaian akibat animasi thumbnail/banner.
+        if (!canvas.__mangalensCanvasId) return;
+        canvas.__mangalensPaintPending = true;
+        if (canvas.__mangalensPaintTimer) clearTimeout(canvas.__mangalensPaintTimer);
+        // Revisi baru dicatat setelah gambar berhenti berubah (debounce), bukan
+        // setiap frame, agar animasi tidak memicu capture berulang.
+        canvas.__mangalensPaintTimer = setTimeout(function () {
+            canvas.__mangalensPaintTimer = null;
+            if (!canvas.__mangalensPaintPending) return;
+            canvas.__mangalensPaintPending = false;
+            canvas.__mangalensPaintSeq = (canvas.__mangalensPaintSeq || 0) + 1;
+            canvas.__mangalensPaintedAt = Date.now();
+            scheduleScan();
+        }, 700);
+    }
+
+    function installCanvasPaintHooks() {
+        if (paintHooksInstalled) return;
+        paintHooksInstalled = true;
+        var proto = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;
+        if (!proto) return;
+        var methods = ['drawImage', 'fillRect', 'strokeRect', 'clearRect', 'putImageData',
+            'fillText', 'strokeText', 'fill', 'stroke', 'drawFocusIfNeeded'];
+        for (var i = 0; i < methods.length; i++) {
+            (function (name) {
+                var original = proto[name];
+                if (typeof original !== 'function' || original.__mangalensWrapped) return;
+                var wrapped = function () {
+                    var result = original.apply(this, arguments);
+                    try { noteCanvasPaint(this.canvas); } catch (e) { }
+                    return result;
+                };
+                wrapped.__mangalensWrapped = true;
+                try { proto[name] = wrapped; } catch (e) { }
+            })(methods[i]);
+        }
+    }
+
+    function canvasRevision(el) {
+        // Hanya dipakai saat signature tidak tersedia (canvas tainted).
+        return el.__mangalensPaintSeq || 0;
+    }
+
+    window.__mangalensSetActive = function (active) {
+        window.__mangalensActive = !!active;
+        return true;
+    };
+
     function absUrl(u) {
         if (!u) return null;
         u = String(u).trim();
@@ -196,11 +256,14 @@
                 parseFloat(style.opacity || '1') === 0) continue;
             if (canvasInAdSlot(el)) continue;
 
-            // Rasio halaman komik; menyaring strip iklan/dekorasi yang sangat pipih.
-            var ratio = rect.width / rect.height;
-            if (ratio < 0.25 || ratio > 4) continue;
-
             var viewer = canvasInViewer(el);
+
+            // Rasio halaman komik menyaring strip iklan/dekorasi yang pipih.
+            // Canvas vertikal panjang (webtoon) di dalam viewer tetap kandidat:
+            // rasio ekstrem bukan alasan membuang seluruh halaman.
+            var ratio = rect.width / rect.height;
+            var tallInViewer = !!viewer && ratio >= 0.05;
+            if (!tallInViewer && (ratio < 0.25 || ratio > 4)) continue;
 
             // Hanya canvas di sekitar viewport yang diproses sekarang; sisanya
             // menyusul saat pengguna menggulir. Ini mencegah pipeline menggulir
@@ -218,8 +281,8 @@
             }
 
             var sig = canvasSignature(el);
-            // Tanpa sidik jari (canvas tainted), identitas elemen dipakai agar key
-            // tetap stabil saat halaman digulir dan unik antar canvas.
+            // Tanpa sidik jari (canvas tainted), key memakai id elemen + nomor
+            // revisi paint. Id saja tidak cukup: redraw akan dianggap konten lama.
             var pageKey = window.__mangalensPageKey;
             if (!pageKey) {
                 var href = String(location.href), ph = 0x811c9dc5;
@@ -232,8 +295,11 @@
             // tidak pernah bertukar halaman antar chapter atau antar posisi.
             if (!el.__mangalensCanvasId) el.__mangalensCanvasId = 'e' + (++canvasSeq);
             // v2: skema tangkapan piksel (rect setelah paint + guard duplikat).
+            // Revisi paint hanya dipakai bila isi tidak bisa di-hash.
+            var revision = sig ? '' : ':r' + canvasRevision(el);
             var key = 'canvas:v2:' + pageKey + ':' + (sig ? 'h' + sig : el.__mangalensCanvasId) +
-                ':' + bw + 'x' + bh;
+                ':' + bw + 'x' + bh + revision;
+            el.__mangalensScannedSeq = canvasRevision(el);
 
             // Konten berubah (redraw): buang overlay lama untuk key sebelumnya.
             var previous = el.__mangalensKey;
@@ -288,10 +354,16 @@
         var scRect = scroller ? scroller.getBoundingClientRect() : null;
         window.__mangalensActiveScroller = scroller;
         window.__mangalensActiveScrollTop = scroller ? scroller.scrollTop : 0;
+        // Backing store dimensions (el.width/el.height) adalah ukuran buffer piksel asli.
+        // CSS rect.width/rect.height adalah ukuran render di viewport (bisa di-scale).
+        // Keduanya perlu dipakai agar sistem tahuseluruh konten canvas, bukan hanya
+        // yang kelihatan di satu viewport.
         return JSON.stringify({
             ok: true,
             cssW: rect.width,
             cssH: rect.height,
+            bw: el.width,
+            bh: el.height,
             vw: window.innerWidth,
             vh: scRect ? Math.min(scRect.height, window.innerHeight) : window.innerHeight,
             dpr: window.devicePixelRatio || 1,
@@ -313,18 +385,25 @@
 
         var scRect = scroller.getBoundingClientRect();
         var elRect = el.getBoundingClientRect();
+        // Posisi canvas di dalam konten scroller (invariant terhadap scroll).
+        var elTopInScroller = (elRect.top - scRect.top) + scroller.scrollTop;
         var target = scroller.scrollTop + (elRect.top - scRect.top) + offsetCss;
         scroller.scrollTop = Math.max(0, target);
 
         var r = el.getBoundingClientRect();
         var top = Math.max(0, scRect.top, r.top);
         var bottom = Math.min(window.innerHeight, scRect.bottom, r.bottom);
+        // Offset konten yang BENAR-BENAR terlihat. Bila scroller sudah mentok,
+        // nilainya lebih kecil dari offset yang diminta; pemanggil memakai nilai
+        // ini agar tile terakhir tidak bergeser/menyisakan celah.
+        var contentOffset = Math.max(0, scroller.scrollTop - elTopInScroller);
         return JSON.stringify({
             ok: true,
             left: r.left,
             width: r.width,
             sliceTop: top,
             sliceHeight: Math.max(0, bottom - top),
+            contentOffset: contentOffset,
             dpr: window.devicePixelRatio || 1
         });
     };
@@ -343,7 +422,11 @@
         var scroller = window.__mangalensActiveScroller || canvasScroller(el);
         var scRect = scroller ? scroller.getBoundingClientRect() : null;
         var r = el.getBoundingClientRect();
-        var top = Math.max(0, scRect ? scRect.top : 0, r.top);
+        var scrollerTop = scRect ? scRect.top : 0;
+        var scrollTop = scroller ? scroller.scrollTop : (window.scrollY || 0);
+        var elTopInScroller = (r.top - scrollerTop) + scrollTop;
+        var contentOffset = Math.max(0, scrollTop - elTopInScroller);
+        var top = Math.max(0, scrollerTop, r.top);
         var bottom = Math.min(window.innerHeight, scRect ? scRect.bottom : window.innerHeight, r.bottom);
         return JSON.stringify({
             ok: true,
@@ -351,6 +434,7 @@
             width: r.width,
             sliceTop: top,
             sliceHeight: Math.max(0, bottom - top),
+            contentOffset: contentOffset,
             canvasTop: r.top,
             canvasHeight: r.height,
             dpr: window.devicePixelRatio || 1
@@ -400,6 +484,116 @@
             bh: el.height
         });
     };
+
+    /**
+     * Informasi sumber gambar canvas untuk diagnostik.
+     * Mencoba mengidentifikasi apakah canvas berasal dari gambar asli yang bisa
+     * diakses lewat URL, atau stateless render.
+     */
+    window.__mangalensCanvasSourceInfo = function (key) {
+        var el = window.__mangalensElements && window.__mangalensElements[key];
+        if (!el || el.tagName !== 'CANVAS' || !el.isConnected) {
+            return JSON.stringify({ sourceType: 'detached' });
+        }
+
+        // Cek apakah ada elemen IMG yang merupakan sumber data untuk canvas ini
+        var sourceImg = findCanvasSourceImage(el);
+        if (sourceImg && sourceImg.src) {
+            var absSrc = absUrl(sourceImg.src);
+            if (absSrc) {
+                return JSON.stringify({
+                    sourceType: 'native',
+                    nativeUrl: absSrc,
+                    nativeWidth: sourceImg.naturalWidth,
+                    nativeHeight: sourceImg.naturalHeight,
+                    canvasBackingW: el.width,
+                    canvasBackingH: el.height,
+                    canvasTainted: isCanvasTainted(el),
+                    pixelCopyUsed: false
+                });
+            }
+        }
+
+        // Canvas mungkin digambar dari banyak sumber (WebGL, multiple images, dll)
+        // Cek canvas tainted status
+        var tainted = isCanvasTainted(el);
+
+        // Jika tidak ada sumber gambar yang teridentifikasi, beri tahu bahwa
+        // ini adalah canvas yang kompleks
+        return JSON.stringify({
+            sourceType: tainted ? 'complex-tainted' : 'complex',
+            canvasBackingW: el.width,
+            canvasBackingH: el.height,
+            canvasTainted: tainted,
+            pixelCopyUsed: true,
+            note: tainted ? 'canvas tainted - native extraction not possible' : 'no identifiable single image source'
+        });
+    };
+
+    /**
+     * Coba temukan elemen IMG yang mungkin menjadi sumber data canvas.
+     * Ini adalah heuristik - tidak semua canvas berasal dari single image.
+     */
+    function findCanvasSourceImage(canvas) {
+        // Strategi 1: Cek apakah canvas ini memiliki data attribute yang merujuk ke image
+        var dataImg = canvas.getAttribute('data-image-src') || canvas.getAttribute('data-src');
+        if (dataImg) {
+            var img = document.querySelector('img[src="' + dataImg + '"]');
+            if (img && img.naturalWidth > 100) return img;
+        }
+
+        // Strategi 2: Cek gambar yang baru saja dimuat sebelum canvas di-render
+        // (bisa jadi sumber dari canvas)
+        var imgs = document.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            var img = imgs[i];
+            if (!img.src || img.src.indexOf('data:') === 0) continue;
+            if (img.naturalWidth < 100 || img.naturalHeight < 100) continue;
+
+            // Cek apakah ukuran gambar cocok dengan canvas
+            if (Math.abs(img.naturalWidth - canvas.width) < 50 &&
+                Math.abs(img.naturalHeight - canvas.height) < 50) {
+                // Ukuran cocok - cek apakah gambar ini visible di area yang sama
+                var imgRect = img.getBoundingClientRect();
+                var canvasRect = canvas.getBoundingClientRect();
+                if (Math.abs(imgRect.left - canvasRect.left) < 10 &&
+                    Math.abs(imgRect.top - canvasRect.top) < 10) {
+                    return img;
+                }
+            }
+        }
+
+        // Strategi 3: Cek gambar dengan ukuran yang sama persis dengan canvas backing store
+        for (var j = 0; j < imgs.length; j++) {
+            var img2 = imgs[j];
+            if (!img2.src || img2.src.indexOf('data:') === 0) continue;
+            if (img2.naturalWidth === canvas.width && img2.naturalHeight === canvas.height) {
+                return img2;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cek apakah canvas tainted (tidak bisa dibaca pikselnya).
+     * Coba ambil sampel piksel kecil - jika gagal, canvas tainted.
+     */
+    function isCanvasTainted(canvas) {
+        try {
+            var ctx = canvas.getContext('2d');
+            if (!ctx) return true;
+            var testCanvas = document.createElement('canvas');
+            testCanvas.width = 2;
+            testCanvas.height = 2;
+            var testCtx = testCanvas.getContext('2d');
+            testCtx.drawImage(canvas, 0, 0, 2, 2);
+            testCtx.getImageData(0, 0, 2, 2);
+            return false;
+        } catch (e) {
+            return true;
+        }
+    }
 
     /** Sembunyikan overlay sendiri agar tidak ikut tertangkap saat capture. */
     window.__mangalensSetOverlayHidden = function (hidden) {
@@ -466,6 +660,13 @@
         return fresh.length;
     };
 
+    // Tombol "Terjemahkan ulang": buang penanda 'sudah dikirim' agar gambar
+    // yang sama dikirim lagi ke pipeline meski halaman tidak berubah.
+    window.__mangalensForceRescan = function () {
+        sent = {};
+        return window.__mangalensScan();
+    };
+
     // ---------------------------------------------------------------
     // Overlay terjemahan
     // ---------------------------------------------------------------
@@ -476,6 +677,9 @@
         delete window.__mangalensContainers[url];
         delete window.__mangalensOverlayState[url];
     }
+
+    var MIN_FONT_SIZE = 9;
+    var FONT_STACK = '-apple-system, Roboto, sans-serif';
 
     function renderOne(url) {
         var payload = window.__mangalensOverlayState[url];
@@ -514,6 +718,29 @@
         container.style.top = rect.top + 'px';
         container.style.width = rect.width + 'px';
         container.style.height = rect.height + 'px';
+        // Kontainer memakai position:fixed, jadi tanpa klip kotak dialog di
+        // luar area baca (mis. panel bawah) bisa muncul di latar hitam.
+        var clip = null;
+        var p = el.parentElement;
+        while (p && p !== document.body) {
+            var cs = window.getComputedStyle(p);
+            if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+                var pr = p.getBoundingClientRect();
+                clip = clip
+                    ? { t: Math.max(clip.t, pr.top), l: Math.max(clip.l, pr.left),
+                        b: Math.min(clip.b, pr.bottom), r: Math.min(clip.r, pr.right) }
+                    : { t: pr.top, l: pr.left, b: pr.bottom, r: pr.right };
+            }
+            p = p.parentElement;
+        }
+        if (!clip) clip = { t: 0, l: 0, b: window.innerHeight, r: window.innerWidth };
+        var clipT = Math.max(0, clip.t - rect.top);
+        var clipL = Math.max(0, clip.l - rect.left);
+        var clipB = Math.max(0, rect.bottom - clip.b);
+        var clipR = Math.max(0, rect.right - clip.r);
+        container.style.clipPath = (clipT + clipB + clipL + clipR > 0)
+            ? 'inset(' + clipT + 'px ' + clipR + 'px ' + clipB + 'px ' + clipL + 'px)'
+            : 'none';
 
         // Bangun ulang isi hanya jika jumlahnya berubah atau kontainer baru.
         var items = payload.items || [];
@@ -524,34 +751,194 @@
         while (container.firstChild) container.removeChild(container.firstChild);
 
         for (var i = 0; i < items.length; i++) {
-            var it = items[i];
-            var d = document.createElement('div');
-            d.className = 'mangalens-translation';
-
-            // Koordinat fraksi (0..1) terhadap gambar, sehingga ikut menyesuaikan
-            // bila gambar diperkecil/diperbesar oleh CSS situs.
-            var left = it.fx * rect.width;
-            var top = it.fy * rect.height;
-            var width = Math.max(8, it.fw * rect.width);
-            var height = Math.max(8, it.fh * rect.height);
-            if (left + width > rect.width) width = Math.max(8, rect.width - left);
-            if (top + height > rect.height) height = Math.max(8, rect.height - top);
-
-            // Ukuran teks mengikuti tinggi kotak: kecil untuk balon kecil,
-            // dibatasi agar tetap terbaca dan tidak meluber.
-            var fontSize = Math.max(8, Math.min(24, Math.min(height * 0.45, width / 6.5)));
-
-            d.style.cssText =
-                'position:absolute;box-sizing:border-box;overflow:hidden;' +
-                'padding:1px 2px;border-radius:3px;pointer-events:none;' +
-                'display:flex;align-items:center;justify-content:center;text-align:center;' +
-                'line-height:1.15;word-break:break-word;' +
-                'left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px;' +
-                'font-size:' + fontSize + 'px;' +
-                'background-color:' + it.bg + ';color:' + it.fg + ';';
-            d.textContent = it.text;
-            container.appendChild(d);
+            var node = buildTranslationBox(items[i], rect.width, rect.height);
+            if (node) container.appendChild(node);
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Adaptive text fitting
+    // ---------------------------------------------------------------
+    // Terjemahan Indonesia biasanya lebih panjang dari teks aslinya. Kotak
+    // ditempatkan pada area teks asli (bukan seluruh balon), lalu font dicari
+    // dari besar ke kecil sampai muat. Tidak ada kotak debug pada mode normal.
+    window.__mangalensDebug = false;
+    window.__mangalensSetDebug = function (enabled) {
+        window.__mangalensDebug = !!enabled;
+        renderAll();
+        return true;
+    };
+
+    var measureCtx = null;
+    function textMeasure(text, font) {
+        if (!measureCtx) {
+            var c = document.createElement('canvas');
+            c.width = 8;
+            c.height = 8;
+            measureCtx = c.getContext('2d');
+        }
+        if (!measureCtx) return text.length * 8;
+        measureCtx.font = font;
+        return measureCtx.measureText(text).width;
+    }
+
+    function wrapText(text, maxWidth, font) {
+        var words = String(text).replace(/\s+/g, ' ').trim().split(' ');
+        var lines = [];
+        var current = '';
+        for (var i = 0; i < words.length; i++) {
+            var word = words[i];
+            if (!word) continue;
+            var candidate = current ? current + ' ' + word : word;
+            if (textMeasure(candidate, font) <= maxWidth) {
+                current = candidate;
+                continue;
+            }
+            if (current) {
+                lines.push(current);
+                current = '';
+            }
+            if (textMeasure(word, font) <= maxWidth) {
+                current = word;
+                continue;
+            }
+            // Kata tunggal lebih lebar dari area (mis. bahasa tanpa spasi).
+            var chunk = '';
+            for (var c = 0; c < word.length; c++) {
+                var next = chunk + word.charAt(c);
+                if (textMeasure(next, font) > maxWidth && chunk) {
+                    lines.push(chunk);
+                    chunk = word.charAt(c);
+                } else {
+                    chunk = next;
+                }
+            }
+            current = chunk;
+        }
+        if (current) lines.push(current);
+        return lines.length ? lines : [''];
+    }
+
+    function contrastOutline(hex) {
+        var m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
+        if (!m) return 'rgba(0,0,0,0.55)';
+        var v = parseInt(m[1], 16);
+        var luma = ((v >> 16 & 255) * 299 + (v >> 8 & 255) * 587 + (v & 255) * 114) / 1000;
+        return luma < 128 ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.5)';
+    }
+
+    function buildTranslationBox(it, rectW, rectH) {
+        var text = String(it.text || '').trim();
+        if (!text) return null;
+
+        var safe = {
+            left: (it.fx || 0) * rectW,
+            top: (it.fy || 0) * rectH,
+            width: Math.max(1, (it.fw || 0) * rectW),
+            height: Math.max(1, (it.fh || 0) * rectH)
+        };
+        var textRect = {
+            left: (it.tx !== undefined ? it.tx : it.fx) * rectW,
+            top: (it.ty !== undefined ? it.ty : it.fy) * rectH,
+            width: Math.max(1, (it.tw !== undefined ? it.tw : it.fw) * rectW),
+            height: Math.max(1, (it.th !== undefined ? it.th : it.fh) * rectH)
+        };
+
+        // Acuan utama selalu kotak teks asli. Latar putih hanya menutup area
+        // teks itu (bukan seluruh balon), sehingga teks lama tidak membayang
+        // dan ilustrasi/garis balon tetap utuh.
+        var conf = String(it.conf || 'MEDIUM');
+        // Teks Jepang vertikal punya kotak sempit dan tinggi. Terjemahan Latin
+        // harus ditata horizontal, jadi area layout dilebarkan mendekati
+        // ukuran tinggi kolom, tetapi tetap dibatasi area aman balon.
+        var vertical = textRect.height > textRect.width * 1.6;
+        var wantW = vertical
+            ? Math.max(textRect.width * 1.10, Math.min(safe.width, textRect.height * 0.95))
+            : Math.max(textRect.width * 1.12, 26);
+        var wantH = vertical
+            ? Math.max(textRect.height * 1.02, 44)
+            : Math.max(textRect.height * 1.45, 22);
+        var area = {
+            left: textRect.left + textRect.width / 2 - wantW / 2,
+            top: textRect.top + textRect.height / 2 - wantH / 2,
+            width: Math.min(wantW, Math.max(24, safe.width)),
+            height: Math.min(wantH, Math.max(20, safe.height))
+        };
+
+        // Jaga agar area tetap di dalam balon/gambar.
+        area.width = Math.min(area.width, safe.width);
+        area.height = Math.min(area.height, safe.height);
+        area.left = Math.min(Math.max(area.left, safe.left), safe.left + safe.width - area.width);
+        area.top = Math.min(Math.max(area.top, safe.top), safe.top + safe.height - area.height);
+
+        if (area.width < 18 || area.height < 14) return null;
+
+        var pad = Math.max(1, Math.min(5, area.height * 0.05));
+        var availW = Math.max(8, area.width - pad * 2);
+        var availH = Math.max(8, area.height - pad * 2);
+        var maxFont = Math.max(9, Math.min(30, area.height * 0.82));
+        var chosen = null;
+        for (var size = Math.floor(maxFont); size >= MIN_FONT_SIZE; size--) {
+            var font = '600 ' + size + 'px ' + FONT_STACK;
+            var lines = wrapText(text, availW, font);
+            var lh = Math.max(size * 1.14, size + 1);
+            if (lines.length * lh <= availH) {
+                chosen = { size: size, lines: lines, lineHeight: lh };
+                break;
+            }
+        }
+        if (!chosen) {
+            // Ukuran minimum tetap dipakai; jangan memotong kata atau mengubah
+            // makna. Area boleh tumbuh ke batas aman bila masih ada ruang.
+            var minFont = '600 ' + MIN_FONT_SIZE + 'px ' + FONT_STACK;
+            var lines = wrapText(text, availW, minFont);
+            var lh = MIN_FONT_SIZE * 1.14;
+            var needed = lines.length * lh + pad * 2;
+            if (needed > area.height) {
+                area.height = Math.min(safe.height, Math.max(area.height, needed));
+                availH = Math.max(8, area.height - pad * 2);
+            }
+            chosen = { size: MIN_FONT_SIZE, lines: lines, lineHeight: lh };
+        }
+
+        var fg = it.fg || '#111111';
+        var bg = it.bg || '#ffffff';
+        // Latar harus opak: teks lama di bawahnya wajib tertutup, bukan tembus.
+        var opaque = (function (c) {
+            var m = String(c).match(/rgba?\(([^)]+)\)/);
+            if (!m) return c;
+            var p = m[1].split(',').map(function (v) { return parseFloat(v); });
+            return 'rgb(' + Math.round(p[0] || 255) + ',' + Math.round(p[1] || 255) +
+                ',' + Math.round(p[2] || 255) + ')';
+        })(bg);
+        var debug = !!window.__mangalensDebug;
+        var node = document.createElement('div');
+        node.className = 'mangalens-translation';
+        node.style.cssText =
+            'position:absolute;box-sizing:border-box;pointer-events:none;' +
+            'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'text-align:center;overflow:visible;' +
+            'left:' + area.left + 'px;top:' + area.top + 'px;' +
+            'width:' + area.width + 'px;height:auto;min-height:' + area.height + 'px;' +
+            'padding:' + pad + 'px;border-radius:' + Math.min(6, pad + 2) + 'px;' +
+            // LOW: jangan menaruh bidang besar di atas ilustrasi; tiap baris
+            // mendapat latar opak setinggi baris agar teks lama tertutup.
+            'background:' + (conf === 'LOW' ? 'transparent' : opaque) + ';' +
+            'color:' + fg + ';font-weight:600;' +
+            'line-height:' + chosen.lineHeight + 'px;font-size:' + chosen.size + 'px;' +
+            'text-shadow:0 0 2px ' + contrastOutline(fg) + ';' +
+            (debug ? 'outline:1px dashed #ffe000;' : '');
+
+        for (var i = 0; i < chosen.lines.length; i++) {
+            var span = document.createElement('span');
+            span.textContent = chosen.lines[i];
+            span.style.cssText = 'display:block;white-space:pre;box-sizing:border-box;' +
+                (conf === 'LOW'
+                    ? 'background:' + opaque + ';border-radius:3px;padding:1px 3px;width:100%;'
+                    : '');
+            node.appendChild(span);
+        }
+        return node;
     }
 
     function renderAll() {
@@ -625,8 +1012,13 @@
     }
 
     function scheduleScan() {
+        if (window.__mangalensActive === false) return;
         if (scanTimer) clearTimeout(scanTimer);
-        scanTimer = setTimeout(function () { window.__mangalensScan(); }, 350);
+        scanTimer = setTimeout(function () {
+            scanTimer = null;
+            if (window.__mangalensActive === false) return;
+            window.__mangalensScan();
+        }, 350);
     }
 
     window.addEventListener('scroll', function () { scheduleScan(); scheduleRender(); }, { passive: true });
@@ -654,6 +1046,31 @@
         });
         var imgs = document.querySelectorAll('img');
         for (var j = 0; j < imgs.length; j++) intersectionObserver.observe(imgs[j]);
+    }
+
+    installCanvasPaintHooks();
+
+    // Jaring pengaman murah: bila ada canvas yang dilukis ulang tanpa memicu
+    // observer (mis. lukisan dari library), pindai maksimal sekali per 2 detik.
+    // Tidak berjalan saat halaman tidak aktif atau tab disembunyikan.
+    setInterval(function () {
+        if (window.__mangalensActive === false || document.hidden) return;
+        var nodes = document.querySelectorAll('canvas');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            var rev = el.__mangalensPaintSeq || 0;
+            if ((el.__mangalensPaintPending || rev > 0) &&
+                rev !== (el.__mangalensScannedSeq || 0)) {
+                scheduleScan();
+                return;
+            }
+        }
+    }, 2000);
+
+    if (document.addEventListener) {
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) scheduleScan();
+        });
     }
 
     scheduleScan();

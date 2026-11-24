@@ -87,7 +87,9 @@ class MlKitOcrEngine : OcrEngine {
             val orientation = orientationOf(script, result)
 
             result.textBlocks.mapIndexedNotNull { index, block ->
-                val text = block.lines.joinToString("\n") { it.text }.trim()
+                val text = OcrTextCleaner.clean(
+                    block.lines.joinToString("\n") { it.text }
+                )
                 val box = block.boundingBox
                 if (text.isEmpty() || box == null) {
                     null
@@ -96,7 +98,21 @@ class MlKitOcrEngine : OcrEngine {
                         text = text,
                         bounds = Rect(box).toOriginal(scaled.scale, bitmap.width, bitmap.height),
                         order = index,
-                        orientation = orientation
+                        orientation = orientation,
+                        lines = block.lines.mapNotNull { line ->
+                            line.boundingBox?.let {
+                                Rect(it).toOriginal(scaled.scale, bitmap.width, bitmap.height)
+                            }
+                        },
+                        elements = block.lines.asSequence()
+                            .flatMap { line -> line.elements.asSequence() }
+                            .mapNotNull { element ->
+                                element.boundingBox?.let {
+                                    Rect(it).toOriginal(scaled.scale, bitmap.width, bitmap.height)
+                                }
+                            }
+                            .take(MAX_ELEMENTS_PER_BLOCK)
+                            .toList()
                     )
                 }
             }
@@ -173,6 +189,9 @@ class MlKitOcrEngine : OcrEngine {
 
         /** Sisi terpanjang maksimum yang dikirim ke ML Kit. */
         const val MAX_OCR_DIMENSION = 2400
+
+        /** Batas kotak elemen per blok agar memori tetap kecil. */
+        const val MAX_ELEMENTS_PER_BLOCK = 80
 
         /** Dicoba berurutan saat halaman hampir tidak berisi huruf Latin. */
         val OTHER_SCRIPTS = listOf(

@@ -27,10 +27,12 @@ class MyMemoryTranslationProvider(
     targetTag: String = "id"
 ) : TranslationProvider {
 
-    private val sourceLanguage: String = languageCodeFor(sourceTag)
+    /** null = deteksi per dialog; jangan pernah mengirim teks Jepang sebagai "en". */
+    private val explicitSource: String? =
+        if (SourceLanguage.isAuto(sourceTag)) null else languageCodeFor(sourceTag)
     private val targetLanguage: String = languageCodeFor(targetTag)
 
-    override val id: String = "mymemory:$sourceLanguage>$targetLanguage"
+    override val id: String = "mymemory:${explicitSource ?: SourceLanguage.AUTO}>$targetLanguage"
     override val displayName: String = "MyMemory (gratis)"
 
     override suspend fun prepare(): Boolean = true
@@ -46,24 +48,37 @@ class MyMemoryTranslationProvider(
 
             val results = LinkedHashMap<String, String>()
 
-            for (batchStart in requests.indices step BATCH_SIZE) {
-                val batch = requests.subList(
-                    batchStart,
-                    minOf(batchStart + BATCH_SIZE, requests.size)
-                )
+            // Kelompokkan per bahasa sumber. Satu permintaan MyMemory hanya
+            // punya satu langpair, jadi halaman campuran harus dipecah.
+            val groups = LinkedHashMap<String, MutableList<TranslationRequest>>()
+            for (request in requests) {
+                val language = explicitSource
+                    ?: languageCodeFor(SourceLanguage.detect(request.text))
+                groups.getOrPut(language) { mutableListOf() }.add(request)
+            }
 
-                val batchResult = runCatching { translateBatch(buildBatchText(batch)) }
-                if (batchResult.isSuccess) {
-                    val parts = (batchResult.getOrNull() ?: "")
-                        .split("\n", limit = batch.size + 1)
-                    batch.forEachIndexed { index, request ->
-                        val value = parts.getOrNull(index)?.trim().orEmpty()
-                        results[request.id] = value
+            for ((language, grouped) in groups) {
+                for (batchStart in grouped.indices step BATCH_SIZE) {
+                    val batch = grouped.subList(
+                        batchStart,
+                        minOf(batchStart + BATCH_SIZE, grouped.size)
+                    )
+
+                    val batchResult = runCatching {
+                        translateBatch(buildBatchText(batch), language)
                     }
-                } else {
-                    // Kosongkan hasil yang gagal agar pipeline tidak menempelkan
-                    // pesan error internal sebagai "terjemahan".
-                    batch.forEach { results[it.id] = "" }
+                    if (batchResult.isSuccess) {
+                        val parts = (batchResult.getOrNull() ?: "")
+                            .split("\n", limit = batch.size + 1)
+                        batch.forEachIndexed { index, request ->
+                            val value = parts.getOrNull(index)?.trim().orEmpty()
+                            results[request.id] = value
+                        }
+                    } else {
+                        // Kosongkan hasil yang gagal agar pipeline tidak menempelkan
+                        // pesan error internal sebagai "terjemahan".
+                        batch.forEach { results[it.id] = "" }
+                    }
                 }
             }
 
@@ -77,11 +92,11 @@ class MyMemoryTranslationProvider(
     private fun buildBatchText(batch: List<TranslationRequest>): String =
         batch.joinToString("\n") { it.text.replace("\n", " ").trim() }
 
-    private fun translateBatch(text: String): String {
+    private fun translateBatch(text: String, sourceLanguage: String): String {
         var lastError: Throwable? = null
         repeat(MAX_ATTEMPTS) { attempt ->
             try {
-                return requestOnce(text)
+                return requestOnce(text, sourceLanguage)
             } catch (e: IOException) {
                 lastError = e
                 if (attempt < MAX_ATTEMPTS - 1) {
@@ -92,7 +107,7 @@ class MyMemoryTranslationProvider(
         throw lastError ?: IllegalStateException("MyMemory gagal")
     }
 
-    private fun requestOnce(text: String): String {
+    private fun requestOnce(text: String, sourceLanguage: String): String {
         val encodedText = URLEncoder.encode(text, StandardCharsets.UTF_8.toString())
         val encodedLangPair = URLEncoder.encode(
             "$sourceLanguage|$targetLanguage",
@@ -128,7 +143,10 @@ class MyMemoryTranslationProvider(
     /** Petakan tag bahasa ke kode ISO 639-1 yang dipakai MyMemory. */
     private fun languageCodeFor(tag: String): String = when (tag.lowercase()) {
         "auto", "en" -> "en"
-        "id" -> "id"
+        "ja", "jp" -> "ja"
+        "ko", "kr" -> "ko"
+        "zh", "zh-cn", "zh-tw" -> "zh"
+        "id", "in" -> "id"
         "ja" -> "ja"
         "ko" -> "ko"
         "zh", "zh-cn" -> "zh"

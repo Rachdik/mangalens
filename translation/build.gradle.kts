@@ -30,12 +30,10 @@ android {
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField(
-            "String",
-            "LLM_API_KEY",
-            quoted(envValue("LLM_API_KEY", "ZAI_API_KEY"))
-        )
+        // Kunci API TIDAK pernah dibaca dari .env/BuildConfig: kunci diisi
+        // pengguna saat runtime dan disimpan terenkripsi.
         buildConfigField(
             "String",
             "LLM_BASE_URL",
@@ -67,4 +65,19 @@ dependencies {
 
     // Terjemahan on-device; model diunduh sekali saat pertama dipakai.
     implementation("com.google.mlkit:translate:17.0.3")
+
+    // Penyimpanan kunci API LLM yang diisi pengguna (tidak di APK).
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    testImplementation("junit:junit:4.13.2")
+    // org.json adalah stub kosong di unit test Android; sediakan implementasi asli.
+    testImplementation("org.json:json:20240303")
+    // ApplicationProvider digunakan oleh helper pengambil resource di unit test.
+    testImplementation("androidx.test:core:1.6.1")
+    // Resource array spinner (translation_providers) didefinisikan di modul app;
+    // unit test localisation mengambilnya melalui com.mangalens.app.R.
+    testImplementation(project(":app"))
+
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

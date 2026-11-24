@@ -12,24 +12,29 @@ import java.net.URL
  * Provider terjemahan berbasis LLM lewat API yang kompatibel dengan
  * OpenAI (`POST {baseUrl}/chat/completions`).
  *
- * Kunci API dan model dibaca dari `.env` di root proyek saat build
- * (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`) lalu disimpan di BuildConfig.
+ * Kunci API diberikan saat runtime dari [LlmConfig] (penyimpanan terenkripsi
+ * yang diisi pengguna), bukan dari source code/BuildConfig/APK. Base URL dan
+ * model boleh diubah pengguna.
+ *
  * Provider ini mengirim semua teks satu layar dalam satu permintaan agar hemat
  * token dan hasilnya konsisten, lalu meminta balasan berupa array JSON.
- *
- * Catatan keamanan: kunci ikut tertanam di APK yang dibangun. Jangan bagikan
- * APK hasil build yang memakai kunci asli.
  */
 class LlmTranslationProvider(
     sourceTag: String,
     targetTag: String = "id",
-    private val apiKey: String = BuildConfig.LLM_API_KEY,
-    baseUrl: String = BuildConfig.LLM_BASE_URL,
-    private val model: String = BuildConfig.LLM_MODEL
+    private val apiKey: String = "",
+    private val baseUrl: String = BuildConfig.LLM_BASE_URL,
+    private val model: String = BuildConfig.LLM_MODEL,
+    private val timeoutMs: Int = LlmConfig.DEFAULT_TIMEOUT_MS
 ) : TranslationProvider {
 
     private val endpoint: String = baseUrl.trimEnd('/') + "/chat/completions"
-    private val sourceLanguage: String = languageName(sourceTag)
+    private val sourceLanguage: String =
+        if (SourceLanguage.isAuto(sourceTag)) {
+            "bahasa asli dialog (deteksi otomatis; jangan asumsikan Inggris)"
+        } else {
+            languageName(SourceLanguage.normalize(sourceTag))
+        }
     private val targetLanguage: String = languageName(targetTag)
     private val targetTag: String = targetTag
 
@@ -43,7 +48,7 @@ class LlmTranslationProvider(
         if (requests.isEmpty()) return TranslateResult.Success(emptyMap())
         if (apiKey.isBlank()) {
             return TranslateResult.Failure(
-                "Kunci API LLM belum diisi. Tambahkan LLM_API_KEY di file .env lalu build ulang."
+                "Kunci API LLM belum diisi. Buka pengaturan provider lalu simpan kunci."
             )
         }
 
@@ -75,6 +80,7 @@ class LlmTranslationProvider(
                 .getJSONObject("message")
                 .getString("content")
 
+            val usage = parseUsage(response)
             val texts = parseTexts(content)
             val result = LinkedHashMap<String, String>()
             requests.forEachIndexed { index, request ->
@@ -86,7 +92,7 @@ class LlmTranslationProvider(
                     else -> translated
                 }
             }
-            TranslateResult.Success(result)
+            TranslateResult.Success(result, usage)
         } catch (t: Throwable) {
             TranslateResult.Failure(t.message ?: "Terjemahan LLM gagal.")
         }
@@ -96,12 +102,18 @@ class LlmTranslationProvider(
         "Kamu penerjemah manga profesional. Terjemahkan dialog dari $sourceLanguage ke " +
             "$targetLanguage yang luwes, santai, dan wajar seperti percakapan komik. " +
             "Pertahankan gaya bicara, emosi, dan nama tokoh. Jangan menambah atau mengurangi makna. " +
+            "Setiap item input adalah satu dialog terpisah. Konteks hanya untuk konsistensi: " +
+            "jangan menerjemahkan konteks dan jangan menggabungkan hasil antar-item. " +
             "Balas HANYA dengan array JSON berisi string terjemahan, urutan dan jumlahnya sama " +
             "dengan input. Contoh: [\"Halo!\",\"Apa kau serius?\"]"
 
     private fun userPrompt(requests: List<TranslationRequest>): String {
         val array = JSONArray()
-        for (request in requests) array.put(request.text)
+        for (request in requests) {
+            val item = JSONObject().put("text", request.text)
+            if (!request.context.isNullOrBlank()) item.put("context", request.context)
+            array.put(item)
+        }
         return array.toString()
     }
 
@@ -109,8 +121,9 @@ class LlmTranslationProvider(
     private suspend fun post(body: String): String = withContext(Dispatchers.IO) {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
+            val timeout = timeoutMs.coerceIn(LlmConfig.MIN_TIMEOUT_MS, LlmConfig.MAX_TIMEOUT_MS)
+            connectTimeout = minOf(CONNECT_TIMEOUT_MS, timeout)
+            readTimeout = timeout
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
@@ -133,25 +146,57 @@ class LlmTranslationProvider(
         }
     }
 
-    /** Ambil array JSON dari balasan; bila gagal, pakai baris bernomor sebagai cadangan. */
-    private fun parseTexts(content: String): List<String> {
-        val trimmed = content.trim()
-        val start = trimmed.indexOf('[')
-        val end = trimmed.lastIndexOf(']')
-        if (start >= 0 && end > start) {
-            val array = runCatching { JSONArray(trimmed.substring(start, end + 1)) }.getOrNull()
-            if (array != null) {
-                return (0 until array.length()).map { array.optString(it) }
-            }
+    private fun parseTexts(content: String): List<String> = LlmResponseParser.parse(content)
+
+    private fun parseUsage(response: String): TokenUsage? {
+        return runCatching {
+            val json = JSONObject(response)
+            val usage = json.optJSONObject("usage") ?: json.optJSONObject("usageMetadata") ?: return null
+            TokenUsage(
+                inputTokens = usage.optInt("prompt_tokens").takeIf { usage.has("prompt_tokens") }
+                    ?: usage.optInt("promptTokenCount").takeIf { usage.has("promptTokenCount") },
+                outputTokens = usage.optInt("completion_tokens").takeIf { usage.has("completion_tokens") }
+                    ?: usage.optInt("candidatesTokenCount").takeIf { usage.has("candidatesTokenCount") },
+                totalTokens = usage.optInt("total_tokens").takeIf { usage.has("total_tokens") }
+                    ?: usage.optInt("totalTokenCount").takeIf { usage.has("totalTokenCount") }
+            )
+        }.getOrNull()
+    }
+
+    suspend fun fetchModels(): List<String> {
+        if (apiKey.isBlank()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val url = baseUrl.trimEnd('/') + "/models"
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 20_000
+                    readTimeout = 30_000
+                    setRequestProperty("Authorization", "Bearer $apiKey")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val text = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
+                connection.disconnect()
+                if (code !in 200..299) return@runCatching emptyList()
+                val json = JSONObject(text)
+                val data = json.optJSONArray("data")
+                if (data != null) {
+                    (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("id") }.filter { it.isNotBlank() }
+                } else {
+                    json.optJSONArray("models")?.let { arr ->
+                        (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("id") ?: arr.optString(it) }.filter { it.isNotBlank() }
+                    } ?: emptyList()
+                }
+            }.getOrDefault(emptyList())
         }
-        return trimmed.lines()
-            .map { it.replace(Regex("^\\s*\\d+[.)]\\s*"), "").trim() }
-            .filter { it.isNotEmpty() }
     }
 
     private fun languageName(tag: String): String = when (tag) {
         "id" -> "Indonesia"
         "en" -> "Inggris"
+        "auto" -> "bahasa asli dialog (deteksi otomatis)"
         "ja" -> "Jepang"
         "ko" -> "Korea"
         "zh" -> "Tionghoa"
