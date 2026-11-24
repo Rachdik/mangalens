@@ -6,6 +6,7 @@ import android.graphics.Rect
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
@@ -31,6 +32,11 @@ import kotlin.math.abs
 class MangaInpaintImageTest {
 
     private lateinit var engine: BasicInpaintingEngine
+
+    @Before
+    fun setUp() {
+        engine = BasicInpaintingEngine()
+    }
 
     @Test
     fun test_01_white_background_maskReduced() {
