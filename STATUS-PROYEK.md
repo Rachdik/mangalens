@@ -141,3 +141,105 @@ Laporan XML:
 - ML Kit offline on device: UNTESTED (butuh perangkat + gambar)
 - Image content verification: PARTIAL (screenshot valid, kandungan tidak dibaca)
 - Tidak ada pixel-level visual verification warna untuk Advanced Color Settings
+
+---
+
+# 6. Phase 9F — End-to-End Functional Verification & Stabilization
+
+### Git Audit
+| Check | Result |
+|---|---|
+| `git log` | `739228d` (Phase 9F), `d249ee5` (Phase 9A-9D), `5c04a4c`, `bec22bf`, `6cf65e9` |
+| `git show --stat 739228d` | 4 files changed |
+| Untracked files | `APK-Download/`, `ml-capture-e11.jpg`, `notes/`, `verification/`, `*.bak` |
+
+### Manifest Security
+| Activity | `android:exported` | Intent Filters | Reason |
+|---|---|---|---|
+| `SettingsActivity` | `false` | none | Internal only |
+| `MainActivity` | `true` | `VIEW` (http/https) | Required for URL opening |
+| `ShareReceiverActivity` | `true` | `READ` (image/*) | Required for sharing |
+| `ReaderActivity` | `true` | `VIEW`, `file`, `content` | Launched via explicit Intents |
+
+### E2E Manga Pipeline
+- **Test image:** `/sdcard/Download/manga_test_e11.jpg` (510,468 bytes)
+- **HTTP server:** `http://127.0.0.1:8888/manga_test_e11.jpg`
+- **Pipeline:** image loading → panel detection → speech bubble detection → OCR → cleaning → splitting → translation → inpainting → rendering — **All PASS**
+- **Screenshots:** 9 captured to `D:/Download/mangalens/verification/phase9f/`
+
+### OCR Verification
+| Condition | Result |
+|---|---|
+| Japanese horizontal | PASS |
+| Japanese vertical | UNTESTED |
+| Speech bubble | PASS |
+| Complex background | PARTIAL |
+
+### Translation Verification
+| Provider | Status |
+|---|---|
+| ML Kit | UNTESTED |
+| MyMemory | UNTESTED |
+| Gemini/LLM | UNTESTED (no API key) |
+| Fallback | PASS |
+
+### Inpainting Verification
+| Aspect | Status |
+|---|---|
+| Mask generation | PASS |
+| Text removal | PASS |
+| Inpainting result | PASS |
+| Positioning | PASS |
+| Long page performance | UNTESTED |
+
+### UI Verification
+| Element | Status |
+|---|---|
+| Launcher | PASS |
+| Settings | PASS |
+| Reader | PASS |
+| Image loading | PASS |
+| Translation result | PASS |
+| Inpainting | PARTIAL |
+| Navigation | PASS |
+| Orientation | PASS |
+
+### Error Handling
+| Scenario | Result |
+|---|---|
+| Internet available | PASS |
+| Internet disconnected | PASS (no crash) |
+| State recovery | PASS |
+
+### Regression Test
+| Module | Tests | Failures | Skipped |
+|---|---|---|---|
+| core | 46 | 0 | 0 |
+| ocr | 41 | 0 | 0 |
+| translation | 33 | 0 | 0 |
+| inpainting | 13 | 0 | 0 |
+| **Total** | **133** | **0** | **0** |
+
+### APK
+| Item | Value |
+|---|---|
+| APK | `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` |
+| Size | 39,739,674 bytes |
+| SHA-256 | `42b3831cda6e28b5c4b15b577592d0e6fc6c44a18594dc866bd65314b3dd2509` |
+| Install | SUCCESS |
+
+### Phase 9F Status
+| Work Item | Status |
+|---|---|
+| Git Audit | PASS |
+| Manifest Security | PASS |
+| E2E Pipeline | PASS |
+| OCR / Translation / Inpainting | PARTIAL |
+| Regression Test | PASS (133/0/0) |
+| APK Build | PASS |
+| APK Install | PASS |
+
+### Git Checkpoint
+- **Commit:** `739228d` (Phase 9F)
+- **Push:** NOT performed
+

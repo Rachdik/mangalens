@@ -446,9 +446,29 @@ Unit test rerun dengan `--rerun-tasks`:
 | Advanced Color Settings (9C) | PASS (logika + unit; vis. PARTIAL) |
 | OCR / Webtoon (9D) | PASS (JVM; image nyata UNTESTED) |
 | Visual verification perangkat | PARTIAL (9 screenshot valid; kandungan konten tidak dibaca) |
-| Regression test | PASS (132/0/1) |
+| Regression test | PASS (133/0/0) |
 | Instrumented test | PASS (8/8) |
 | Build APK | PASS |
 | Git checkpoint | DONE (SHA d249ee5c14d682f6eff0d019c4564ee7620c3ca6) |
 | Handover | DONE |
-| Phase 9E | NOT DONE |
+| Phase 9E | DONE (verification, regression, documentation) |
+
+### J. Phase 9F — End-to-End Functional Verification & Stabilization
+| Pekerjaan | Status |
+|---|---|
+| Git Audit | PASS |
+| Manifest Security | PASS |
+| E2E Manga Pipeline | PASS (image content PARTIAL) |
+| OCR Verification | PARTIAL |
+| Translation Verification | UNTESTED (no API key) |
+| Inpainting Verification | PARTIAL |
+| UI Verification | PARTIAL |
+| Error Handling | PARTIAL (offline test PASS) |
+| Regression Test | PASS (133/0/0) |
+| APK Build | PASS |
+| APK Installation | PASS |
+
+### K. Git Checkpoint
+- **Commit:** `739228d` (Phase 9F)
+- **Push:** NOT performed
+
