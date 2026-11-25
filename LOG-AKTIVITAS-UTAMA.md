@@ -549,3 +549,112 @@ Unit test rerun dengan `--rerun-tasks`:
 - **Key finding:** the Phase 9M test file was created by the previous agent but had compile errors (wrong overlay/translation enums, missing `Context` import, private test helper visibility). It was **fixed and now compiles and passes on RMX3561**. No production source was changed by the audit; only the Phase 9M test file was corrected.
 - **Remaining Phase 9M work (not yet verified on device):** real Chrome overlay, draggable bubble, dismiss/restore, real MediaProjection capture from another app, OCR/translation/inpainting from screen capture, coordinate mapping on live screenshots, browser scrolling, rotation, repeated capture cleanup, full Floating module regression.
 - **Next agent:** continue with real-device validation (Priority 7), then write `MangaLens-PHASE9M-VALIDATION.md`.
+
+## 2026-11-25 — Sesi Takeover (audit, push, APK cleanup, re-build, re-commit)
+
+### A. Kondisi awal
+- Repo: D:/Download/mangalens, branch main, HEAD 732ee80.
+- Git status: modified LOG-AKTIVITAS-UTAMA.md, untracked:
+  MangaLens-PHASE9L-VALIDATION.md, MangaLens-PHASE9M-VALIDATION.md,
+  docs/HANDOFF-AGENT-MANGALENS.md, docs/HANDOFF-AGENT-PHASE9M.md,
+  floating/src/androidTest/.../Phase9MMobileCaptureTest.kt.
+- 9 commits ahead of origin/main; 0 behind.
+- Remote: origin https://github.com/Rachdik/mangalens.git (fetch+push).
+- Android device: ADB kosong saat pemeriksaan ini; perangkat tidak tersedia.
+- Build environment: Gradle via ./gradlew (8.9), JDK 17, AGP 8.5.2, Kotlin 1.9.23.
+
+### B. Audit repo (biasanya terbatas, tidak berulang)
+- Kondisi Git, branch, remote, ahead/behind, dan status diperiksa sekali.
+- Sumber utama yang ada: app, core, ui, storage, reader, floating, ocr,
+  translation, inpainting, imageprocessing.
+- Dokumen yang ada: README.md, LOG-AKTIVITAS-UTAMA.md, STATUS-PROYEK.md,
+  FINAL-VALIDATION-REPORT.md, MangaLens-PHASE9F–K-VALIDATION.md,
+  MangaLens-PHASE9L-VALIDATION.md, MangaLens-PHASE9M-VALIDATION.md,
+  docs/HANDOFF-AGENT-MANGALENS.md, docs/HANDOFF-AGENT-PHASE9M.md.
+- File uji yang ada di disk: floating/src/androidTest/.../Phase9MMobileCaptureTest.kt
+  (baru) dan BubbleOverlayRenderTest.kt (sudah ada).
+- Tidak ada .env di working tree (dipertahankan; .gitignore sudah memuat .env dan *.apk).
+
+### C. Unit test yang dijalankan (bukti XML, bukan klaim)
+- :core:testDebugUnitTest — 46 PASS / 0 FAIL / 0 SKIPPED.
+- :ocr:testDebugUnitTest — 41 PASS / 0 FAIL / 0 SKIPPED.
+- :translation:testDebugUnitTest — 32 PASS / 0 FAIL / 1 SKIPPED.
+- :inpainting:testDebugUnitTest — 13 PASS / 0 FAIL / 0 SKIPPED.
+- Total unit test: 132 PASS / 0 FAIL / 1 SKIPPED.
+
+Catatan: hasil dari output test runner + XML test-results; 1 test
+translation dilewati karena butuh instrumentation dan proyek tidak pakai Robolectric.
+
+### D. Build APK (regresi)
+- ./gradlew :app:assembleDebug → BUILD SUCCESSFUL.
+- APK: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+  - Ukuran: 38.311.373 byte
+  - SHA-256: F1047F347D34FE08D451B577C63C21982C805EEB216C44A82C1273070E6FE342
+- Hash sama dengan HEAD 732ee80 karena tidak ada perubahan source produksi
+  antara audit dan build ulang (hanya dokumentasi yang diubah/ditambahkan).
+
+### E. Perubahan Git (selama sesi ini)
+1. Commit 5773a5a — docs: update Phase 9L/9M validation, handover docs, and
+   Phase9M mobile test.
+   - Menambahi/merapikan:
+     - MangaLens-PHASE9L-VALIDATION.md
+     - MangaLens-PHASE9M-VALIDATION.md
+     - docs/HANDOFF-AGENT-MANGALENS.md
+     - docs/HANDOFF-AGENT-PHASE9M.md
+     - floating/src/androidTest/java/com/mangalens/floating/Phase9MMobileCaptureTest.kt
+   - Memperbarui LOG-AKTIVITAS-UTAMA.md untuk sesi takeover + unit test + build.
+
+### F. Push ke GitHub
+- git push origin main → berhasil.
+- Local HEAD dan remote HEAD sama: 5773a5a.
+- Branch di remote: main (5773a5a) + feature/mangalens-development (ce721bb).
+
+### G. Pembersihan APK development
+Dihapus dari working tree (bukan rewrite histori Git):
+- APK-Download/MangaLens-debug-20261124-phase3.apk
+- APK-Download/MangaLens-debug-20261124-phase4.apk
+- APK-Download/MangaLens-debug-20261124-phase6.apk
+- APK-Download/MangaLens-debug-20261124-phase6b.apk
+- APK-Download/MangaLens-debug-20261124-phase6c.apk
+- APK-Download/MangaLens-debug-20261124-refresh-settings.apk
+- APK-Download/SHA256-phase6b.txt
+- APK-Download/SHA256-phase6c.txt
+- MangaLens-20261123-arm64-debug.apk (di root)
+
+Sisa APK di working tree:
+- APK-Download/MangaLens-tahap13-*-debug.apk (3 ABI) — ditahan sebagai arsip
+  yang masih dilacak; tidak dihapus dalam sesi ini.
+- app/build/outputs/apk/debug/app-arm64-v8a-debug.apk — build terbaru (kandidat).
+- floating/build/outputs/apk/androidTest/debug/floating-debug-androidTest.apk
+- reader/build/outputs/apk/androidTest/debug/reader-debug-androidTest.apk
+
+### H. Upload APK
+Belum dilakukan dalam sesi ini. Alasannya:
+- Perangkat ADB tidak tersedia saat pemeriksaan ini, jadi smoke test perangkat
+  belum bisa dilakukan sebelum upload.
+- Sesi ini difokuskan ke stabilisasi repo, push dokumen, dan pembersihan APK lama.
+- APK terbaru (app-arm64-v8a-debug.apk, SHA F1047...) sudah jadi; upload ke
+  GitHub Release akan dilakukan setelah verifikasi lingkungan dan/atau smoker perangkat.
+
+### I. README / deskripsi repo
+- README.md belum diubah dalam sesi ini.
+- Deskripsi GitHub repo tidak bisa dibaca dari environment ini; jika perlu
+  pembaruan deskripsi, akan dikerjakan secara terpisah setelah verifikasi Url.
+
+### J. Masalah yang tidak terselesaikan
+- Perangkat ADB tidak tersedia; instrumented floating test dan smoke test reader
+  tidak bisa diulang dalam sesi ini.
+- Upload APK ke GitHub Release belum dilakukan.
+- Implimen floating P1–P4 (overlay nyata, MediaProjection nyata, koordinat dari
+  screenshot nyata, E2E lintas-aplikasi) belum diverifikasi dalam sesi ini.
+- Phase 9M masih PARTIAL: 5/5 floating unit test PASS, tapi cross-app end-to-end
+  (Chrome → bubble → capture → OCR → translation → inpainting → koordinat → overlay)
+  belum pernah diverifikasi di perangkat.
+
+### K. Prioritas lanjutan (setelah sesi ini)
+1. Pastikan perangkat tersedia / adb menyambung; verifikasi floating module dan
+   reader di RMX3561.
+2. Upload APK terbaru ke GitHub Release terpisah (bukan menggantikan arsip
+   tahap yang ada tanpa verifikasi).
+3. Update README bila ada perubahan status fitur nyata.
+4. Lanjutkan roadmap Phase 9M (P1–P4) sesuai dokumen handover.
