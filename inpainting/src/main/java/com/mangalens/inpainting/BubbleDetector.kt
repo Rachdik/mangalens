@@ -379,11 +379,24 @@ object BubbleDetector {
         scale: Float,
         orientation: TextOrientation
     ): Boolean {
-        val reference = max(min(a.height(), b.height()), 12)
+        // Ukuran acuan jarak HARUS ukuran karakter, bukan panjang blok.
+        // Pada teks vertikal satu blok adalah satu kolom (tinggi ~140 px, lebar
+        // ~20 px). Memakai tinggi sebagai acuan membuat balon di panel berbeda
+        // (jarak vertikal 109 px) dianggap satu balon hanya karena kolomnya
+        // tinggi — itulah penyebab dua balon tergabung sebelum Phase 9K.
+        // Untuk tategaki: lebar kolom = ukuran karakter; jarak antar-kolom dalam
+        // satu balon ~1,6 karakter, sedangkan dua balon bertumpuk berjarak lebih
+        // dari 0,5 karakter.
+        val verticalText = orientation == TextOrientation.VERTICAL
+        val characterSize = if (verticalText) {
+            max(min(a.width(), b.width()), 8)
+        } else {
+            max(min(a.height(), b.height()), 12)
+        }
         val horizontalGap = max(0, max(a.left, b.left) - min(a.right, b.right))
         val verticalGap = max(0, max(a.top, b.top) - min(a.bottom, b.bottom))
-        val horizontalLimit = (reference * 1.1f).toInt()
-        val verticalLimit = (reference * 0.9f).toInt()
+        val horizontalLimit = (characterSize * if (verticalText) 1.6f else 1.1f).toInt()
+        val verticalLimit = (characterSize * if (verticalText) 0.5f else 0.9f).toInt()
         if (horizontalGap > horizontalLimit || verticalGap > verticalLimit) return false
 
         // Jangan gabungkan dua area yang bersama-sama membentuk blok raksasa:

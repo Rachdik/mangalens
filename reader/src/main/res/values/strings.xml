@@ -5,6 +5,9 @@
     <string name="reader_reload_page">Muat ulang halaman</string>
     <string name="reader_retranslate">Terjemahkan ulang</string>
     <string name="reader_settings">Pengaturan</string>
+    <string name="reader_mode_toggle">Ganti mode gambar: asli atau terjemahan</string>
+    <string name="reader_mode_translated">Terjemahan</string>
+    <string name="reader_mode_original">Asli</string>
     <string name="reader_reloading">Memuat ulang halaman…</string>
     <string name="reader_retranslating">Memproses ulang terjemahan halaman…</string>
     <string name="image_count_initial">Gambar 0</string>

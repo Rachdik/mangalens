@@ -78,6 +78,13 @@ class ReaderActivity : AppCompatActivity() {
     /** Deteksi perubahan pengaturan saat kembali dari layar Settings. */
     private var lastSettingsSignature: String? = null
 
+    /** Mode tampilan Reader: true = bitmap inpainting + overlay, false = asli. */
+    private var showingTranslation = true
+
+    /** Hasil terakhir, dipakai saat pengguna berpindah kembali ke mode terjemahan. */
+    private var lastTranslation: ImageTranslation? = null
+    private var statusHideToken = 0
+
     private val scanScript: String by lazy {
         runCatching {
             assets.open(SCAN_SCRIPT).bufferedReader().use { it.readText() }
@@ -126,6 +133,8 @@ class ReaderActivity : AppCompatActivity() {
         }
         binding.retranslateButton.setOnClickListener { refreshTranslation() }
         binding.readerSettingsButton.setOnClickListener { openSettings() }
+        binding.modeButton.setOnClickListener { toggleTranslationMode() }
+        updateModeButton()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -169,9 +178,16 @@ class ReaderActivity : AppCompatActivity() {
             context = this,
             llmConfigProvider = { translationSettings.llmConfig() },
             autoFallbackProvider = { translationSettings.autoFallback },
-            inpaintingEnabledProvider = { translationSettings.inpaintingEnabled }
+            // Reader selalu menyiapkan bitmap inpainting: mode "Terjemahan"
+            // memang menampilkan gambar yang teks aslinya sudah dihapus.
+            // Pengaturan global tetap berlaku untuk jalur lain.
+            inpaintingEnabledProvider = { true }
         )
         applyTranslationSettings()
+
+        translatePipeline?.onStage = { text ->
+            binding.webView.post { showStatus(text) }
+        }
 
         // Callback dipanggil dari coroutine pipeline (Dispatchers.IO). Semua metode
         // WebView wajib dijalankan di thread yang membuat WebView, jadi hasilnya
@@ -215,6 +231,13 @@ class ReaderActivity : AppCompatActivity() {
      */
     private fun applyTranslationOverlay(result: ImageTranslation) {
         if (isFinishing || isDestroyed) return
+        Log.d(
+            TAG_OVERLAY,
+            "result url=${result.imageUrl} bubbles=${result.bubbles.size} " +
+                "provider=${result.providerName.ifBlank { "-" }} " +
+                "inpainted=${result.inpaintedDataUrl != null} " +
+                "size=${result.imageWidth}x${result.imageHeight}"
+        )
         val url = result.imageUrl
         if (url.isNullOrBlank() || result.imageWidth <= 0 || result.imageHeight <= 0) {
             // Tidak ada konteks gambar (mis. OCR gagal): jangan tinggalkan overlay lama.
@@ -222,11 +245,17 @@ class ReaderActivity : AppCompatActivity() {
         }
 
         val webView = binding.webView
+        lastTranslation = result
         result.inpaintedDataUrl?.let { dataUrl ->
-            val script = "document.querySelectorAll('img').forEach(function(i){" +
-                "if(i.src&&i.src.indexOf(" + JSONObject.quote(url) + ")!==-1){i.src=" +
-                JSONObject.quote(dataUrl) + ";}});"
-            webView.evaluateJavascript(script, null)
+            // Ganti sumber gambar dengan bitmap inpainting lewat helper JS, yang
+            // menyimpan sumber asli agar mode "Asli" bisa memulihkannya tanpa
+            // memuat ulang situs.
+            val script = "(function(){return window.__mangalensApplyInpainted?" +
+                "window.__mangalensApplyInpainted(" + JSONObject.quote(url) + "," +
+                JSONObject.quote(dataUrl) + "):false;})();"
+            webView.evaluateJavascript(script) { applied ->
+                Log.d(TAG_OVERLAY, "inpainted src applied=$applied url=$url")
+            }
         }
         if (result.bubbles.isEmpty()) {
             // Gambar ini tidak punya teks: pastikan overlay lamanya dibuang,
@@ -279,11 +308,70 @@ class ReaderActivity : AppCompatActivity() {
             )
         }
 
+        // Terapkan mode aktif: bila pengguna sedang melihat gambar asli, overlay
+        // dan bitmap inpainting disembunyikan sampai ia memilih Terjemahan lagi.
         webView.evaluateJavascript(
-            "(function(){var p=$payload;" +
+            "window.__mangalensImageMode=" +
+                JSONObject.quote(if (showingTranslation) "translated" else "original") + ";" +
+                "(function(){var p=$payload;" +
                 "return window.__mangalensOverlay?window.__mangalensOverlay(p):-1;})();"
         ) { domCount ->
-            Log.d(TAG_OVERLAY, "overlay containers=$domCount")
+            Log.d(TAG_OVERLAY, "overlay containers=$domCount mode=${if (showingTranslation) "translated" else "original"}")
+            webView.evaluateJavascript(
+                "window.__mangalensReaderState?window.__mangalensReaderState():'{}'"
+            ) { state ->
+                Log.d(TAG_READER_STATE, state.orEmpty())
+                showStatus("Terjemahan siap · ${result.bubbles.size} balon")
+            }
+        }
+    }
+
+    /**
+     * Berpindah antara bitmap inpainting + terjemahan dan halaman asli.
+     * Hasil terakhir dipakai ulang, jadi tidak ada OCR/terjemahan ulang saat
+     * pengguna bolak-balik.
+     */
+    private fun toggleTranslationMode() {
+        showingTranslation = !showingTranslation
+        updateModeButton()
+        val webView = binding.webView
+        webView.evaluateJavascript(
+            "window.__mangalensSetImageMode?" +
+                "window.__mangalensSetImageMode(${JSONObject.quote(if (showingTranslation) "translated" else "original")})" +
+                ":'no-js'"
+        ) { mode ->
+            Log.d(TAG_OVERLAY, "mode=$mode")
+            webView.evaluateJavascript(
+                "window.__mangalensReaderState?window.__mangalensReaderState():'{}'"
+            ) { state -> Log.d(TAG_READER_STATE, "mode changed $state") }
+        }
+        if (showingTranslation && lastTranslation == null) {
+            showStatus("Menerjemahkan halaman…")
+            refreshTranslation()
+        } else {
+            showStatus(if (showingTranslation) "Mode terjemahan" else "Mode gambar asli")
+        }
+    }
+
+    private fun updateModeButton() {
+        binding.modeButton.setText(
+            if (showingTranslation) R.string.reader_mode_translated else R.string.reader_mode_original
+        )
+    }
+
+    /** Status dipakai agar pengguna tahu tahap mana yang sedang berjalan. */
+    private fun showStatus(text: String) {
+        if (isFinishing || isDestroyed) return
+        binding.statusView.text = text
+        binding.statusView.visibility = View.VISIBLE
+        statusHideToken++
+        val token = statusHideToken
+        if (text.startsWith("Terjemahan siap")) {
+            binding.webView.postDelayed({
+                if (token == statusHideToken && !isDestroyed) {
+                    binding.statusView.visibility = View.GONE
+                }
+            }, 2500)
         }
     }
 
@@ -312,6 +400,7 @@ class ReaderActivity : AppCompatActivity() {
                 scanSession.reset()
                 translationManager?.reset()
                 canvasContentHashes.clear()
+                lastTranslation = null
                 // Hentikan OCR/terjemahan halaman lama; hasilnya sudah tidak relevan.
                 translatePipeline?.cancel()
                 // Overlay halaman lama harus hilang total sebelum halaman baru diproses.
@@ -380,6 +469,8 @@ class ReaderActivity : AppCompatActivity() {
         translationManager?.reset()
         scanSession.reset()
         canvasContentHashes.clear()
+        lastTranslation = null
+        showStatus("Memindai gambar…")
         lastSettingsSignature = settingsSignature()
         injectScanner()
         // Force rescan: gambar yang sama harus dikirim ulang walau URL/tanda
@@ -733,6 +824,7 @@ class ReaderActivity : AppCompatActivity() {
         private const val SCAN_SCRIPT = "mangalens_scan.js"
         private const val BRIDGE_NAME = "MangaLensBridge"
         private const val TAG_OVERLAY = "MangaLensOverlay"
+        private const val TAG_READER_STATE = "MangaLensReader"
 
         /** Batas tunggu satu panggilan JavaScript; WebView bisa tidak memanggil balik. */
         private const val JS_EVAL_TIMEOUT_MS = 8_000L

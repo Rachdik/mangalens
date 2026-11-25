@@ -56,6 +56,19 @@ class ReadTranslatePipeline(
         private set
     var onImageTranslated: ((ImageTranslation) -> Unit)? = null
 
+    /** Status yang bisa ditampilkan ke pengguna, mis. "Mengenali teks…". */
+    var onStage: ((String) -> Unit)? = null
+
+    /**
+     * Cache kecil hasil per halaman: membuka ulang gambar yang sama (mis. ganti
+     * mode Asli -> Terjemahan) tidak menjalankan OCR/terjemahan/inpainting lagi.
+     * Kunci memuat versi file, bahasa, provider, dan status inpainting.
+     */
+    private val pageCache = object : LinkedHashMap<String, ImageTranslation>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageTranslation>): Boolean =
+            size > MAX_CACHE_ENTRIES
+    }
+
     fun setTranslationBackend(backend: TranslationBackend) {
         if (this.backend == backend && translator != null) return
         this.backend = backend
@@ -103,12 +116,39 @@ class ReadTranslatePipeline(
             return null
         }
         progress = 10
+        onStage?.invoke("Memuat gambar…")
+        val script = scriptFor(sourceTag)
+        val cacheKey = listOf(
+            file.absolutePath,
+            file.length(),
+            file.lastModified(),
+            sourceTag,
+            targetTag,
+            backend,
+            autoFallbackProvider(),
+            inpaintingEnabledProvider(),
+            imageUrl.orEmpty()
+        ).joinToString("|")
         return startJob {
+            pageCache[cacheKey]?.let { cached ->
+                progress = 100
+                onStage?.invoke("Menampilkan terjemahan (cache)…")
+                return@startJob cached
+            }
             val bitmap = decodeBounded(file)
                 ?: return@startJob ImageTranslation(imageUrl, emptyList(), 0, 0)
             try {
                 progress = 30
                 val translator = getTranslator()
+                translator.onStage = { stage ->
+                    progress = when (stage) {
+                        com.mangalens.inpainting.TranslationStage.RECOGNIZING -> 40
+                        com.mangalens.inpainting.TranslationStage.GROUPING -> 55
+                        com.mangalens.inpainting.TranslationStage.TRANSLATING -> 65
+                        com.mangalens.inpainting.TranslationStage.INPAINTING -> 85
+                    }
+                    onStage?.invoke(stageLabel(stage))
+                }
                 // Webtoon 1000x12000 tidak boleh dikecilkan menjadi 125 px lalu
                 // di-OCR: teksnya hilang. Gambar dipotong vertikal dan tiap
                 // potongan di-OCR pada lebar penuh, lalu koordinat digabung.
@@ -122,7 +162,7 @@ class ReadTranslatePipeline(
                     for (slice in slices) {
                         val (inpaintedSlice, page) = translator.translateWithInpaint(
                             slice.bitmap,
-                            LanguageScript.AUTO,
+                            script,
                             BasicInpaintingEngine(),
                             sourceTag,
                             targetTag
@@ -136,11 +176,15 @@ class ReadTranslatePipeline(
                         providerName = page.providerName.ifBlank { providerName }
                         sliceInpainted += inpaintedSlice to page
                     }
-                    val (composite, bubbles) = compositeInpaintedSlices(
+                    val (composite, inpaintedBubbles) = compositeInpaintedSlices(
                         original = bitmap,
                         slices = slices,
                         sliceInpainted = sliceInpainted
                     )
+                    // Sebelumnya hasil ini di-destructure ke `bubbles` lokal yang
+                    // menutupi daftar bersama, sehingga Reader menerima 0 balon
+                    // padahal gambar inpainting sudah berisi 5 terjemahan.
+                    bubbles += inpaintedBubbles
                     inpaintedDataUrl = bitmapToDataUrl(composite)
                     if (!composite.isRecycled) composite.recycle()
                     for (slice in slices) {
@@ -151,7 +195,7 @@ class ReadTranslatePipeline(
                     for (slice in slices) {
                         val page = translator.translate(
                             slice.bitmap,
-                            LanguageScript.AUTO,
+                            script,
                             sourceTag,
                             targetTag
                         )
@@ -185,7 +229,8 @@ class ReadTranslatePipeline(
                 val ordered = bubbles
                     .sortedWith(compareBy({ it.textBounds.top }, { it.textBounds.left }))
                     .mapIndexed { index, bubble -> bubble.copy(readingOrder = index + 1) }
-                ImageTranslation(
+                onStage?.invoke("Menampilkan terjemahan…")
+                val result = ImageTranslation(
                     imageUrl,
                     ordered,
                     bitmap.width,
@@ -193,10 +238,36 @@ class ReadTranslatePipeline(
                     providerName,
                     inpaintedDataUrl
                 )
+                if (ordered.isNotEmpty() || inpaintedDataUrl != null) {
+                    pageCache[cacheKey] = result
+                }
+                result
             } finally {
                 if (!bitmap.isRecycled) bitmap.recycle()
             }
         }
+    }
+
+    /**
+     * Bahasa sumber yang dipilih pengguna dipakai langsung sebagai skrip OCR.
+     * Sebelumnya Reader selalu memakai AUTO sehingga halaman Jepang menjalankan
+     * recognizer Latin + Jepang (dan dulu Korea/Tiongkok juga).
+     */
+    private fun scriptFor(sourceTag: String): LanguageScript = when (sourceTag.lowercase()) {
+        "ja", "jp" -> LanguageScript.JAPANESE
+        "ko", "kr" -> LanguageScript.KOREAN
+        "zh", "zh-cn", "zh-tw" -> LanguageScript.CHINESE
+        "en", "es", "fr", "de", "pt", "id", "in", "vi", "ms", "th", "ar", "ru" ->
+            LanguageScript.LATIN
+
+        else -> LanguageScript.AUTO
+    }
+
+    private fun stageLabel(stage: com.mangalens.inpainting.TranslationStage): String = when (stage) {
+        com.mangalens.inpainting.TranslationStage.RECOGNIZING -> "Mengenali teks…"
+        com.mangalens.inpainting.TranslationStage.GROUPING -> "Mengelompokkan balon…"
+        com.mangalens.inpainting.TranslationStage.TRANSLATING -> "Menerjemahkan…"
+        com.mangalens.inpainting.TranslationStage.INPAINTING -> "Menghapus teks asli…"
     }
 
     private fun startJob(block: suspend () -> ImageTranslation): Job {
@@ -215,6 +286,10 @@ class ReadTranslatePipeline(
                 throw c
             } catch (t: Throwable) {
                 status = PipelineStatus.Error
+                progress = 0
+                onStage?.invoke("Gagal memproses halaman. Gambar asli tetap ditampilkan.")
+                // Hasil kosong tanpa URL: overlay lama dibuang, gambar asli tidak
+                // pernah diganti, jadi halaman pengguna tetap utuh.
                 onImageTranslated?.invoke(ImageTranslation(null, emptyList(), 0, 0))
             }
         }
@@ -381,17 +456,20 @@ class ReadTranslatePipeline(
 
         full.setPixels(fullPixels, 0, width, 0, 0, width, height)
 
-        // Deduplikasi: buang bubble yang berada di area overlap dan tertutupi
-        // oleh slice yang lebih bawah.
+        // Deduplikasi: hanya bubble yang SAMA (ditemukan di dua slice yang
+        // tumpang tindih) yang dibuang.
+        //
+        // Versi sebelumnya membuang setiap bubble yang mulai di atas bubble
+        // sebelumnya (`top < coveredBottom`). Itu juga membuang balon sah yang
+        // berdampingan/bertumpuk vertikal di panel yang sama — pada halaman uji
+        // 5 balon terjemahan menjadi 0 sehingga overlay Reader kosong.
         val ordered = allBubbles.sortedWith(
             compareBy({ it.textBounds.top }, { it.textBounds.left })
         )
         val kept = mutableListOf<TranslatedBubble>()
-        var coveredBottom = 0
         for (bubble in ordered) {
-            if (bubble.textBounds.top < coveredBottom) continue
+            if (kept.any { sameBubble(it.textBounds, bubble.textBounds) }) continue
             kept += bubble
-            coveredBottom = max(coveredBottom, bubble.textBounds.bottom)
         }
 
         val finalOrdered = kept.sortedWith(
@@ -399,6 +477,15 @@ class ReadTranslatePipeline(
         ).mapIndexed { index, bubble -> bubble.copy(readingOrder = index + 1) }
 
         return full to finalOrdered
+    }
+
+    /** True bila dua kotak teks menunjuk balon yang sama (bukan sekadar berdekatan). */
+    private fun sameBubble(a: Rect, b: Rect): Boolean {
+        val intersection = Rect()
+        if (!intersection.setIntersect(a, b)) return false
+        val overlap = intersection.width().toLong() * intersection.height()
+        val smaller = minOf(a.width().toLong() * a.height(), b.width().toLong() * b.height())
+        return smaller > 0 && overlap * 10 >= smaller * 6
     }
 
     /** Salin kotak dari src ke dst pada posisi dstX/dstY. */
@@ -464,6 +551,9 @@ class ReadTranslatePipeline(
         const val OCR_SLICE_HEIGHT = 2000
         const val OCR_OVERLAP_PX = 120
         const val OCR_MIN_SLICE_HEIGHT = 240
+
+        /** Cukup 3 halaman terakhir: hemat memori, tetap menutup navigasi bolak-balik. */
+        const val MAX_CACHE_ENTRIES = 3
     }
 }
 

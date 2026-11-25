@@ -16,6 +16,9 @@ import com.mangalens.translation.TranslationRequest
 import kotlin.math.max
 import kotlin.math.min
 
+/** Tahap pipeline yang bisa ditampilkan sebagai status ke pengguna. */
+enum class TranslationStage { RECOGNIZING, GROUPING, TRANSLATING, INPAINTING }
+
 /** Hasil terjemahan satu balon, lengkap dengan posisi & warna balon aslinya. */
 data class TranslatedBubble(
     /** Area balon penuh; hanya batas aman, bukan area yang dicat penuh. */
@@ -69,6 +72,12 @@ class MangaPageTranslator(
     private val providerFactory: (String, String) -> TranslationProvider
 ) {
 
+    /**
+     * Tahap pemrosesan, dilaporkan ke UI agar pengguna melihat kemajuan
+     * (bukan layar diam tanpa penjelasan). Dipanggil dari thread pipeline.
+     */
+    var onStage: ((TranslationStage) -> Unit)? = null
+
     private var provider: TranslationProvider? = null
     private var providerKey: String? = null
 
@@ -78,6 +87,7 @@ class MangaPageTranslator(
         sourceTag: String = "auto",
         targetTag: String = "id"
     ): PageTranslation {
+        onStage?.invoke(TranslationStage.RECOGNIZING)
         val blocks = ocr.recognize(bitmap, script)
         if (blocks.isEmpty()) {
             return PageTranslation(emptyList(), 0, 0, ScriptDetector.languageTag(script), targetTag)
@@ -98,8 +108,14 @@ class MangaPageTranslator(
         val detected = ScriptDetector.languageTagOf(joined)
         val tag = if (sourceTag.isBlank() || sourceTag == "auto") detected else sourceTag
 
+        onStage?.invoke(TranslationStage.GROUPING)
         val bubbles = BubbleDetector.detect(bitmap, usable)
         val regions = buildRegions(bitmap, usable, bubbles)
+        Log.d(
+            TAG,
+            "translate blocks=${blocks.size} usable=${usable.size} bubbles=${bubbles.size} " +
+                "regions=${regions.size} tag=$tag target=$targetTag"
+        )
         if (regions.isEmpty() || tag == targetTag) {
             // Bahasa sumber sama dengan tujuan: tidak ada yang perlu diterjemahkan.
             return PageTranslation(emptyList(), usable.size, bubbles.size, tag, targetTag)
@@ -132,6 +148,7 @@ class MangaPageTranslator(
             TranslationRequest(region.id, region.text, context)
         }
 
+        onStage?.invoke(TranslationStage.TRANSLATING)
         return when (val result = translationProvider.translate(requests)) {
             is TranslateResult.Success -> {
                 val translated = regions.mapNotNull { region ->
@@ -153,6 +170,7 @@ class MangaPageTranslator(
                         )
                     }
                 }
+                Log.d(TAG, "translated bubbles=${translated.size} provider=$providerName")
                 PageTranslation(
                     translated,
                     usable.size,
@@ -194,6 +212,7 @@ class MangaPageTranslator(
                 bubble.textLines.ifEmpty { listOf(bubble.textBounds) }
             }
         )
+        onStage?.invoke(TranslationStage.INPAINTING)
         val inpainted = try {
             inpaintingEngine.inpaint(bitmap, mask)
         } finally {

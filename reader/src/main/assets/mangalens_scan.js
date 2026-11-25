@@ -148,6 +148,10 @@
 
             var url = absUrl(urlOf(el));
             if (!url) continue;
+            // Bitmap hasil inpainting adalah data URL: jangan pernah dianggap
+            // gambar baru, karena itu akan menjalankan OCR ulang pada gambar
+            // yang teksnya sudah dihapus.
+            if (url.indexOf('data:') === 0) continue;
 
             // Simpan elemen yang benar-benar dirender agar overlay menempel
             // pada gambar ini, termasuk setelah lazy-load mengganti src.
@@ -678,6 +682,91 @@
         delete window.__mangalensOverlayState[url];
     }
 
+    // ---------------------------------------------------------------
+    // Mode gambar: Terjemahan (bitmap inpainting) / Asli
+    // ---------------------------------------------------------------
+    window.__mangalensImageMode = window.__mangalensImageMode || 'translated';
+    window.__mangalensOriginalSrc = window.__mangalensOriginalSrc || {};
+    window.__mangalensInpaintedSrc = window.__mangalensInpaintedSrc || {};
+
+    function imageElementFor(url) {
+        var el = window.__mangalensElements && window.__mangalensElements[url];
+        if (el && el.isConnected) return el;
+        var imgs = document.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].src || '';
+            if (src.indexOf(url) !== -1) return imgs[i];
+        }
+        return null;
+    }
+
+    /**
+     * Pasang bitmap hasil inpainting sebagai sumber gambar. Sumber asli disimpan
+     * agar pengguna bisa kembali ke halaman asli tanpa memuat ulang situs.
+     */
+    window.__mangalensApplyInpainted = function (url, dataUrl) {
+        if (!url || !dataUrl) return false;
+        window.__mangalensInpaintedSrc[url] = dataUrl;
+        var el = imageElementFor(url);
+        if (!el) return false;
+        if (!window.__mangalensOriginalSrc[url]) {
+            window.__mangalensOriginalSrc[url] = el.getAttribute('src') || el.src;
+        }
+        if (window.__mangalensImageMode === 'translated') el.src = dataUrl;
+        return true;
+    };
+
+    /** mode: 'translated' (inpainting + overlay) atau 'original' (gambar asli). */
+    window.__mangalensSetImageMode = function (mode) {
+        window.__mangalensImageMode = mode === 'original' ? 'original' : 'translated';
+        for (var url in window.__mangalensOriginalSrc) {
+            var el = imageElementFor(url);
+            if (!el) continue;
+            if (window.__mangalensImageMode === 'original') {
+                el.src = window.__mangalensOriginalSrc[url];
+            } else if (window.__mangalensInpaintedSrc[url]) {
+                el.src = window.__mangalensInpaintedSrc[url];
+            }
+        }
+        renderAll();
+        return window.__mangalensImageMode;
+    };
+
+    /** Ringkasan keadaan untuk verifikasi Reader (Kotlin/test). */
+    window.__mangalensReaderState = function () {
+        var out = { mode: window.__mangalensImageMode, images: 0, inpainted: 0,
+                    overlays: 0, boxCount: 0, img: null, boxes: [] };
+        for (var url in window.__mangalensOriginalSrc) {
+            out.images++;
+            if (window.__mangalensInpaintedSrc[url]) out.inpainted++;
+        }
+        for (var c in window.__mangalensContainers) {
+            var node = window.__mangalensContainers[c];
+            if (node && node.parentNode && node.style.display !== 'none') {
+                out.overlays++;
+                out.boxCount += node.children.length;
+            }
+        }
+        var firstUrl = null;
+        for (var u in window.__mangalensOriginalSrc) { firstUrl = u; break; }
+        var el = firstUrl ? imageElementFor(firstUrl) : null;
+        if (el) {
+            var r = el.getBoundingClientRect();
+            out.img = { l: Math.round(r.left), t: Math.round(r.top),
+                        w: Math.round(r.width), h: Math.round(r.height) };
+            var container = window.__mangalensContainers[firstUrl];
+            if (container && container.style.display !== 'none') {
+                var box = container.firstChild;
+                if (box) {
+                    var br = box.getBoundingClientRect();
+                    out.boxes.push({ l: Math.round(br.left), t: Math.round(br.top),
+                                     w: Math.round(br.width), h: Math.round(br.height) });
+                }
+            }
+        }
+        return JSON.stringify(out);
+    };
+
     var MIN_FONT_SIZE = 9;
     var FONT_STACK = '-apple-system, Roboto, sans-serif';
 
@@ -690,8 +779,13 @@
             return;
         }
 
-        var rect = el.getBoundingClientRect();
         var existing = window.__mangalensContainers[url];
+        if (window.__mangalensImageMode === 'original') {
+            // Mode asli: sembunyikan semua tempelan tanpa membuang datanya.
+            if (existing) existing.style.display = 'none';
+            return;
+        }
+        var rect = el.getBoundingClientRect();
         if (rect.width < 2 || rect.height < 2) {
             // Gambar sedang tidak dirender (lazy-load, pindah halaman, atau
             // dihapus situs). Sembunyikan overlay lama agar tidak tertinggal di

@@ -65,6 +65,10 @@ class MlKitOcrEngine : OcrEngine {
                 best = blocks
                 bestChars = chars
             }
+            // Optimasi Phase 9K: berhenti begitu satu skrip menghasilkan cukup
+            // banyak teks. Sebelumnya halaman Jepang tetap menjalankan OCR Korea
+            // dan Tiongkok setelah Jepang berhasil (3 pass tambahan ~500-800 ms).
+            if (bestChars >= AUTO_ENOUGH_CHARS) break
         }
         return best
     }

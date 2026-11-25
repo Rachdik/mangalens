@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Halaman uji dilayani dari 127.0.0.1 oleh test di perangkat. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+</manifest>

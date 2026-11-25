@@ -53,6 +53,22 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/modeButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:contentDescription="@string/reader_mode_toggle"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="@string/reader_mode_translated"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
             android:id="@+id/retranslateButton"
             android:layout_width="40dp"
             android:layout_height="40dp"
@@ -100,6 +116,19 @@
         android:layout_width="match_parent"
         android:layout_height="3dp"
         android:max="100"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/statusView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/mangalens_card"
+        android:paddingStart="@dimen/space_m"
+        android:paddingTop="4dp"
+        android:paddingEnd="@dimen/space_m"
+        android:paddingBottom="4dp"
+        android:textColor="@color/mangalens_on_surface"
+        android:textSize="12sp"
         android:visibility="gone" />
 
     <FrameLayout
