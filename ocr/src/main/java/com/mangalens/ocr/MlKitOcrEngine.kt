@@ -87,8 +87,18 @@ class MlKitOcrEngine : OcrEngine {
             val orientation = orientationOf(script, result)
 
             result.textBlocks.mapIndexedNotNull { index, block ->
+                // Teks vertikal Jepang dibaca dari kolom PALING KANAN ke kiri.
+                // ML Kit mengembalikan baris dari kiri ke kanan, sehingga tanpa
+                // pembalikan urutan ini dialog satu balon terbaca terbalik
+                // (mis. "この / なにかしら / かわいい人形は" alih-alih
+                // "この / かわいい人形は / なにかしら").
+                val orderedLines = if (orientation == TextOrientation.VERTICAL) {
+                    block.lines.sortedByDescending { it.boundingBox?.left ?: 0 }
+                } else {
+                    block.lines
+                }
                 val text = OcrTextCleaner.clean(
-                    block.lines.joinToString("\n") { it.text }
+                    orderedLines.joinToString("\n") { it.text }
                 )
                 val box = block.boundingBox
                 if (text.isEmpty() || box == null) {
@@ -99,7 +109,7 @@ class MlKitOcrEngine : OcrEngine {
                         bounds = Rect(box).toOriginal(scaled.scale, bitmap.width, bitmap.height),
                         order = index,
                         orientation = orientation,
-                        lines = block.lines.mapNotNull { line ->
+                        lines = orderedLines.mapNotNull { line ->
                             line.boundingBox?.let {
                                 Rect(it).toOriginal(scaled.scale, bitmap.width, bitmap.height)
                             }

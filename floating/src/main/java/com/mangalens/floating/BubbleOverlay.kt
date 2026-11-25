@@ -296,14 +296,25 @@ class BubbleOverlay(
             val pad = (textRect.height() * 0.08f).toInt().coerceIn(2, 10)
             val extraWidth = (textRect.width() * 0.08f).toInt()
 
-            val left = ((textRect.left - pad - extraWidth / 2) / scale).toInt()
-                .coerceIn(0, max(0, screenWidth - MIN_TRANSLATION_WIDTH))
             val top = ((textRect.top - pad) / scale).toInt()
                 .coerceIn(0, max(0, screenHeight - MIN_TRANSLATION_HEIGHT))
-            val width = ((textRect.width() + pad * 2 + extraWidth) / scale).toInt()
-                .coerceAtMost(screenWidth - left)
+            // Kotak teks manga Jepang vertikal sangat sempit (sering hanya 30 px),
+            // sehingga teks Indonesia terbungkus 1-3 huruf per baris dan meluber
+            // keluar kotak. Lebar dinaikkan ke batas baca minimum, memakai lebar
+            // balon asli bila lebih besar. Lebar tetap dibatasi MAX_WIDTH_FRACTION.
+            val textWidth = ((textRect.width() + pad * 2 + extraWidth) / scale).toInt()
+            val readableWidth = max(
+                textWidth,
+                (screenWidth * MIN_READABLE_WIDTH_FRACTION).toInt()
+            )
+            val width = readableWidth
+                .coerceAtLeast(MIN_TRANSLATION_WIDTH)
                 .coerceAtMost((screenWidth * MAX_WIDTH_FRACTION).toInt())
+            val centerX = ((textRect.left + textRect.right) / 2f / scale).toInt()
+            val left = (centerX - width / 2)
+                .coerceIn(0, max(0, screenWidth - width))
             val height = ((textRect.height() + pad * 2) / scale).toInt()
+                .coerceAtLeast(MIN_TRANSLATION_HEIGHT)
                 .coerceAtMost(screenHeight - top)
                 .coerceAtMost((screenHeight * MAX_HEIGHT_FRACTION).toInt())
             if (width < MIN_TRANSLATION_WIDTH || height < MIN_TRANSLATION_HEIGHT) continue
@@ -651,6 +662,9 @@ class BubbleOverlay(
         const val MAX_TRANSLATIONS = 40
         const val MIN_TRANSLATION_WIDTH = 30
         const val MIN_TRANSLATION_HEIGHT = 16
+
+        /** Lebar minimum agar teks Indonesia terbaca (fraksi lebar layar). */
+        const val MIN_READABLE_WIDTH_FRACTION = 0.22f
 
         /** Batas ukuran satu tempelan agar tidak pernah menutupi satu layar. */
         const val MAX_WIDTH_FRACTION = 0.9f

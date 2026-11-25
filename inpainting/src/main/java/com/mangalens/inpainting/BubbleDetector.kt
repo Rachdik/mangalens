@@ -111,7 +111,16 @@ object BubbleDetector {
                 group.blocks.maxOf { it.bounds.bottom }
             ).toScaled(scale)
 
-            val text = group.blocks.joinToString(" ") { it.text.trim() }.trim()
+            // Satu balon Jepang sering terpecah menjadi beberapa blok OCR per
+            // kolom. Urutan baca manga vertikal adalah kanan -> kiri, sedangkan
+            // ML Kit memberi urutan kiri -> kanan; tanpa pengurutan ini teks
+            // satu balon tergabung terbalik sebelum diterjemahkan.
+            val orderedBlocks = if (orientation == TextOrientation.VERTICAL) {
+                group.blocks.sortedByDescending { it.bounds.left }
+            } else {
+                group.blocks
+            }
+            val text = orderedBlocks.joinToString(" ") { it.text.trim() }.trim()
             if (text.isEmpty()) return@mapNotNull null
 
             val ring = ringColor(pixels, image.width, image.height, union)
@@ -134,7 +143,7 @@ object BubbleDetector {
             // (OCR mengembalikannya pada ukuran asli). Sebelumnya baris ini memanggil
             // toOriginal(scale) sehingga koordinat dibagi skala DUA kali dan mask
             // inpainting jatuh di tempat yang salah (teks asli tidak pernah terhapus).
-            val lines = group.blocks
+            val lines = orderedBlocks
                 .flatMap { block -> block.lines.ifEmpty { listOf(block.bounds) } }
                 .map { Rect(it) }
             val idText = text + "@" + union.left + "," + union.top
