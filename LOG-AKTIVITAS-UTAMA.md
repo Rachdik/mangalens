@@ -658,3 +658,68 @@ Belum dilakukan dalam sesi ini. Alasannya:
    tahap yang ada tanpa verifikasi).
 3. Update README bila ada perubahan status fitur nyata.
 4. Lanjutkan roadmap Phase 9M (P1–P4) sesuai dokumen handover.
+
+## 2026-11-25 — Sesi lanjutan takeover (verifikasi APK, bersihkan APK lama, update README, push)
+
+### A. Tugas yang diselesaikan
+- Verifikasi APK terbaru:
+  - Path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+  - Ukuran: 38.311.373 byte
+  - SHA-256: f1047f347d34fe08d451b577c63c21982c805eeb216c44a82c1273070e6fe342
+  - Package: com.mangalens.app, versionCode 1, versionName "0.1.0"
+  - Hash cocok dengan yang dilaporkan sebelumnya; tidak ada perubahan source produksi
+    antara audit dan verifikasi ulang, jadi APK ini adalah build dari HEAD repo yang sama.
+- Bersihkan APK development lama:
+  - Dihapus dari working tree dan di-commit penghapusan index-nya:
+    - APK-Download/MangaLens-debug-20261124-phase3.apk
+    - APK-Download/MangaLens-debug-20261124-phase4.apk
+    - APK-Download/MangaLens-debug-20261124-phase6.apk
+    - APK-Download/MangaLens-debug-20261124-phase6b.apk
+    - APK-Download/MangaLens-debug-20261124-phase6c.apk
+    - APK-Download/MangaLens-debug-20261124-refresh-settings.apk
+    - APK-Download/SHA256-phase6b.txt
+    - APK-Download/SHA256-phase6c.txt
+    - MangaLens-20261123-arm64-debug.apk (di root)
+  - Sisa APK eksternal yang sengaja tidak dihapus:
+    - APK-Download/MangaLens-tahap13-*-debug.apk (3 ABI) — dipertahankan sebagai arsip yang
+      masih dilacak; tidak termasuk dalam kategori "development lama" dalam sesi ini.
+- Update README, dokumentasi fitur aktual + status jujur Floating Translate.
+- `.gitignore`: tambah `gcm-diagnose.log` agar log diagnostik GCM tidak ikut commit.
+- Commit dan push:
+  - 951507f — docs: update README with actual feature coverage and honest floating status
+    (README.md + .gitignore).
+- Push berhasil; working tree bersih; tidak ada file rahasia yang masuk.
+
+### B. Tugas yang tidak terselesaikan
+- GitHub Release dan upload APK:
+  - Target: membuat release "MangaLens Latest Development Build" dan mengupload
+    MangaLens-debug-latest-arm64-v8a.apk.
+  - Hambatan: autentikasi GitHub API di lingkungan ini memerlukan PAT atau interaksi browser
+    (GCM login berbasis UI). Tidak ada PAT yang tersedia dalam environment, dan headless GCM
+    login tidak bisa diselesaikan tanpa interaksi pengguna.
+  - Akibatnya: release + upload APK tidak bisa diselesaikan dalam sesi ini.
+  - APK terbaru tetap tersedia locally dan tidak dihapus; upload bisa dilanjutkan nanti
+    setelah kredensial GitHub tersedia atau interaksi browser dilakukan.
+
+### C. Perangkat
+- ADB: tidak ada perangkat yang tersambung saat verifikasi APK ini.
+- Smoke test perangkat nyata tidak dilakukan.
+- Hasil uji tetap mengandalkan unit test + build yang sudah ada.
+
+### D. Unit test (batasan, dari sesi sebelumnya; tidak diulang dalam sesi ini agar tidak
+   berulang tanpa manfaat)
+- 132 PASS / 0 FAIL / 1 SKIPPED (core, ocr, translation, inpainting).
+- Floating test di perangkat sebelumnya: 5/5 PASS.
+
+### E. Catatan kejujuran
+- Tidak ada klaim smoke test perangkat berhasil.
+- Tidak ada klaim upload APK ke GitHub Release berhasil.
+- Hambatan upload dilaporkan secara eksplisit, bukan disembunyikan.
+- Tidak ada API key / rahasia yang masuk ke repo.
+
+### F. Sisa prioritas
+- Siapkan kredensial GitHub (PAT) atau lakukan interaksi GCM login manual bila ingin lanjut
+  upload release asset.
+- Setelah upload selesai, update log aktivitas dengan SHA, ukuran, link release.
+- Lanjutkan roadmap Phase 9M: P0 (stabilisasi), P1 (overlay nyata), P2 (MediaProjection
+  nyata), P3 (koordinat dari screenshot nyata), P4 (E2E, rotasi, scroll, performa).
