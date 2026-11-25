@@ -382,6 +382,11 @@ class ReaderActivity : AppCompatActivity() {
             loadsImagesAutomatically = true
             useWideViewPort = true
             loadWithOverviewMode = true
+            // Pinch-to-zoom halaman: tanpa ini Reader hanya bisa digulir,
+            // padahal pengguna perlu memperbesar balon untuk membaca.
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
             builtInZoomControls = true
             displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE

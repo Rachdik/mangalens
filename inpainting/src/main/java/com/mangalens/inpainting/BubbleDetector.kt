@@ -395,7 +395,12 @@ object BubbleDetector {
         }
         val horizontalGap = max(0, max(a.left, b.left) - min(a.right, b.right))
         val verticalGap = max(0, max(a.top, b.top) - min(a.bottom, b.bottom))
-        val horizontalLimit = (characterSize * if (verticalText) 1.6f else 1.1f).toInt()
+        // Teks vertikal: celah antar-kolom dalam satu ucapan biasanya 0,2–0,4
+        // karakter, sedangkan dua ucapan berbeda dalam balon yang sama (mis.
+        // "まあ！" lalu "わたしくしに内緒で…") berjarak ≥0,75 karakter. Batas
+        // 1,6 karakter (Phase 9K) menggabungkan keduanya menjadi satu region
+        // sehingga salah satu kalimat tidak pernah diterjemahkan sendiri.
+        val horizontalLimit = (characterSize * if (verticalText) 0.75f else 1.1f).toInt()
         val verticalLimit = (characterSize * if (verticalText) 0.5f else 0.9f).toInt()
         if (horizontalGap > horizontalLimit || verticalGap > verticalLimit) return false
 

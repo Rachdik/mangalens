@@ -96,7 +96,9 @@ class ReaderEndToEndTest {
             stages.distinct().size >= 3
         )
         assertEquals("mode awal harus terjemahan", "translated", translated.optString("mode"))
-        assertEquals("jumlah kotak terjemahan di DOM", 5, translated.optInt("boxCount"))
+        // Phase 9L: 6 region (まあ! kini terpisah dari kolom panjang).
+        assertEquals("jumlah kotak terjemahan di DOM", 6, translated.optInt("boxCount"))
+        assertEquals("ada teks yang meluber keluar balon", 0, translated.optInt("overflowBoxes"))
         assertTrue("bitmap inpainting tidak terpasang: $translated", translated.optInt("inpainted") >= 1)
         assertTrue("overlay terjemahan tidak muncul: $translated", translated.optInt("overlays") >= 1)
 
@@ -139,6 +141,11 @@ class ReaderEndToEndTest {
             "posisi horizontal kotak bergeser setelah zoom: $beforeFrac vs $zoomedFrac",
             kotlin.math.abs(beforeFrac - zoomedFrac) < 0.02
         )
+        // Tipografi adaptif: saat diperkecil, teks tetap di dalam balon.
+        println("READER zoomed typography boxes=${zoomed.optInt("boxCount")} " +
+            "overflow=${zoomed.optInt("overflowBoxes")} minFont=${zoomed.optInt("minFont")}")
+        assertEquals("kotak terjemahan hilang saat zoom-out", 6, zoomed.optInt("boxCount"))
+        assertEquals("teks meluber keluar balon saat zoom-out", 0, zoomed.optInt("overflowBoxes"))
         capture("reader_zoomed")
 
         // --- Scroll: container position:fixed harus tetap menempel pada gambar ---
@@ -177,7 +184,7 @@ class ReaderEndToEndTest {
         println("READER switch back in ${switchMs}ms state=$back")
         assertEquals("translated", back.optString("mode"))
         assertTrue("overlay tidak kembali setelah mode terjemahan", back.optInt("overlays") >= 1)
-        assertEquals("kotak terjemahan hilang setelah kembali dari mode asli", 5, back.optInt("boxCount"))
+        assertEquals("kotak terjemahan hilang setelah kembali dari mode asli", 6, back.optInt("boxCount"))
         capture("reader_translated_again")
 
         // --- Tiga siklus bolak-balik: tidak boleh ada overlay ganda/tersembunyi ---
@@ -195,7 +202,7 @@ class ReaderEndToEndTest {
 
             clickMode()
             val terjemahan = awaitState(10_000) {
-                it.optString("mode") == "translated" && it.optInt("boxCount") >= 5
+                it.optString("mode") == "translated" && it.optInt("boxCount") >= 6
             }
             awaitImageLoaded()
             val terjemahanSrc = jsString("document.getElementById('page').src")
@@ -211,7 +218,7 @@ class ReaderEndToEndTest {
             // Tidak boleh ada kotak ganda (10) atau hilang (0).
             assertEquals(
                 "siklus ${cycle + 1}: jumlah kotak terjemahan salah",
-                5,
+                6,
                 terjemahan.optInt("boxCount")
             )
             println("READER cycle ${cycle + 1} ok boxes=${terjemahan.optInt("boxCount")}")

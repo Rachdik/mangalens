@@ -15,15 +15,18 @@ import org.junit.runner.RunWith
 /**
  * Pemisahan balon pada halaman manga Jepang nyata (Phase 9K, Priority B).
  *
- * Halaman `manga_page_ja_modern.png` memiliki 5 balon:
+ * Halaman `manga_page_ja_modern.png` memiliki 7 region teks (6 terbaca OCR):
  * - kanan atas: シュヴァルツ！
  * - kiri atas: このかわいい人形はなにかしら。
- * - tengah kiri (satu balon, 4 kolom): まあ！ + わたしくしに内緒で + オーダーする + なんて！
+ * - tengah kiri: まあ！ (region sendiri sejak Phase 9L)
+ * - tengah kiri: わたしくしに内緒で オーダーする なんて！
  * - tengah kanan atas: どこから見つけて……
  * - tengah kanan bawah: いえ、特注のもので……
+ * - kiri bawah: 抜けがけ (teks sangat kecil; ML Kit tidak membacanya)
  *
  * Sebelum Phase 9K, balon kiri atas dan balon tengah kiri digabung menjadi satu,
- * sehingga terjemahan satu balon menutupi balon lain.
+ * sehingga terjemahan satu balon menutupi balon lain. Sebelum Phase 9L,
+ * `まあ！` dan `わたしくしに…` digabung menjadi satu region teks.
  */
 @RunWith(AndroidJUnit4::class)
 class BubbleSeparationTest {
@@ -47,8 +50,10 @@ class BubbleSeparationTest {
             )
         }
 
-        // 5 balon pada halaman ini; penggabungan dua balon menghasilkan 3-4.
-        assertEquals("jumlah balon salah: ${bubbles.map { it.text }}", 5, bubbles.size)
+        // 6 region dari 7 ground truth (抜けがけ tidak terbaca OCR).
+        // Penggabungan dua balon tetangga (bug Phase 9J) menghasilkan 3-4,
+        // penggabungan dua ucapan dalam satu balon (bug Phase 9K) menghasilkan 5.
+        assertEquals("jumlah balon salah: ${bubbles.map { it.text }}", 6, bubbles.size)
 
         val topLeft = bubbles.firstOrNull { it.text.contains("この") }
         assertTrue("balon この... tidak ditemukan", topLeft != null)
@@ -57,18 +62,27 @@ class BubbleSeparationTest {
             !topLeft.text.contains("まあ") && !topLeft.text.contains("オーダー")
         )
 
-        val middle = bubbles.firstOrNull { it.text.contains("オーダー") }
-        assertTrue("balon まあ/オーダー tidak ditemukan", middle != null)
-        // Isi yang diuji adalah KEUTUHAN balon, bukan ketepatan OCR: model
+        val long = bubbles.firstOrNull { it.text.contains("オーダー") }
+        assertTrue("region オーダー tidak ditemukan", long != null)
+        // Isi yang diuji adalah KEUTUHAN region, bukan ketepatan OCR: model
         // membaca "でわたくしに内緒で" (huruf た hilang), itu urusan test OCR.
         assertTrue(
-            "balon まあ/オーダー harus utuh satu balon: '${middle!!.text}'",
-            middle.text.contains("まあ") && middle.text.contains("なんて") &&
-                middle.text.contains("内緒")
+            "region panjang harus memuat ketiga kolomnya: '${long!!.text}'",
+            long.text.contains("なんて") && long.text.contains("内緒") &&
+                long.text.contains("オーダー")
         )
         assertTrue(
-            "balon まあ/オーダー tidak boleh memuat この...: '${middle.text}'",
-            !middle.text.contains("この")
+            "region panjang tidak boleh memuat この...: '${long.text}'",
+            !long.text.contains("この")
+        )
+
+        // Phase 9L: "まあ!" adalah ucapan terpisah dari kolom panjang. Menggabung
+        // keduanya membuat salah satu kalimat tidak pernah diterjemahkan sendiri.
+        val maa = bubbles.firstOrNull { it.text.contains("まあ") }
+        assertTrue("region まあ! tidak ditemukan terpisah", maa != null)
+        assertTrue(
+            "region まあ! tidak boleh memuat dialog panjang: '${maa!!.text}'",
+            !maa.text.contains("内緒") && !maa.text.contains("オーダー")
         )
 
         // Kotak teks antar balon tidak boleh bertumpuk.

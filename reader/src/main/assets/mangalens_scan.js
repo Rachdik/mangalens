@@ -735,7 +735,9 @@
     /** Ringkasan keadaan untuk verifikasi Reader (Kotlin/test). */
     window.__mangalensReaderState = function () {
         var out = { mode: window.__mangalensImageMode, images: 0, inpainted: 0,
-                    overlays: 0, boxCount: 0, img: null, boxes: [] };
+                    overlays: 0, boxCount: 0, overflowBoxes: 0, minFont: 99,
+                    renderMs: Math.round(window.__mangalensLastRenderMs || 0),
+                    img: null, boxes: [] };
         for (var url in window.__mangalensOriginalSrc) {
             out.images++;
             if (window.__mangalensInpaintedSrc[url]) out.inpainted++;
@@ -745,6 +747,12 @@
             if (node && node.parentNode && node.style.display !== 'none') {
                 out.overlays++;
                 out.boxCount += node.children.length;
+                for (var b = 0; b < node.children.length; b++) {
+                    var boxEl = node.children[b];
+                    if (boxEl.getAttribute('data-overflow') === '1') out.overflowBoxes++;
+                    var fontPx = parseFloat(boxEl.getAttribute('data-font') || '0');
+                    if (fontPx > 0 && fontPx < out.minFont) out.minFont = fontPx;
+                }
             }
         }
         var firstUrl = null;
@@ -768,6 +776,8 @@
     };
 
     var MIN_FONT_SIZE = 9;
+    /** Batas bawah absolut: dipakai hanya bila balon terlalu sempit. */
+    var FONT_HARD_FLOOR = 6;
     var FONT_STACK = '-apple-system, Roboto, sans-serif';
 
     function renderOne(url) {
@@ -971,28 +981,69 @@
         var availW = Math.max(8, area.width - pad * 2);
         var availH = Math.max(8, area.height - pad * 2);
         var maxFont = Math.max(9, Math.min(30, area.height * 0.82));
-        var chosen = null;
-        for (var size = Math.floor(maxFont); size >= MIN_FONT_SIZE; size--) {
+
+        function fitAt(size, width, height) {
             var font = '600 ' + size + 'px ' + FONT_STACK;
-            var lines = wrapText(text, availW, font);
+            var lines = wrapText(text, width, font);
             var lh = Math.max(size * 1.14, size + 1);
-            if (lines.length * lh <= availH) {
-                chosen = { size: size, lines: lines, lineHeight: lh };
+            return { size: size, lines: lines, lineHeight: lh, fits: lines.length * lh <= height };
+        }
+
+        var chosen = null;
+        // 1. Ukuran nyaman: dari besar ke MIN_FONT_SIZE, harus muat lebar DAN tinggi.
+        for (var size = Math.floor(maxFont); size >= MIN_FONT_SIZE; size--) {
+            var fit = fitAt(size, availW, availH);
+            if (fit.fits) {
+                chosen = fit;
                 break;
             }
         }
+        // 2. Sebelum mengecilkan huruf, manfaatkan SELURUH area aman balon:
+        // kadang area teks sempit padahal balonnya cukup lebar.
         if (!chosen) {
-            // Ukuran minimum tetap dipakai; jangan memotong kata atau mengubah
-            // makna. Area boleh tumbuh ke batas aman bila masih ada ruang.
-            var minFont = '600 ' + MIN_FONT_SIZE + 'px ' + FONT_STACK;
-            var lines = wrapText(text, availW, minFont);
-            var lh = MIN_FONT_SIZE * 1.14;
-            var needed = lines.length * lh + pad * 2;
-            if (needed > area.height) {
-                area.height = Math.min(safe.height, Math.max(area.height, needed));
-                availH = Math.max(8, area.height - pad * 2);
+            area.left = safe.left;
+            area.top = safe.top;
+            area.width = safe.width;
+            area.height = safe.height;
+            availW = Math.max(8, area.width - pad * 2);
+            availH = Math.max(8, area.height - pad * 2);
+            for (var wideSize = Math.floor(maxFont); wideSize >= MIN_FONT_SIZE; wideSize--) {
+                var wideFit = fitAt(wideSize, availW, availH);
+                if (wideFit.fits) {
+                    chosen = wideFit;
+                    break;
+                }
             }
-            chosen = { size: MIN_FONT_SIZE, lines: lines, lineHeight: lh };
+        }
+        // 3. Balon sangat sempit (mis. pada zoom-out): teks tetap ditampilkan
+        // utuh, ukuran turun sampai FONT_HARD_FLOOR. Lebih baik sedikit kecil
+        // daripada meluber keluar balon atau terpotong.
+        if (!chosen) {
+            for (var small = MIN_FONT_SIZE - 1; small >= FONT_HARD_FLOOR; small--) {
+                var smallFit = fitAt(small, availW, availH);
+                if (smallFit.fits) {
+                    smallFit.compact = true;
+                    chosen = smallFit;
+                    break;
+                }
+            }
+        }
+        // 4. Fallback terakhir: huruf minimum di seluruh area aman balon, lalu
+        // tandai overflow agar terukur di test dan teks lengkap tetap tersedia
+        // lewat atribut title.
+        var overflow = false;
+        if (!chosen) {
+            pad = 1;
+            area.left = safe.left;
+            area.top = safe.top;
+            area.width = safe.width;
+            area.height = safe.height;
+            availW = Math.max(8, area.width - pad * 2);
+            availH = Math.max(8, area.height - pad * 2);
+            var floorFit = fitAt(FONT_HARD_FLOOR, availW, availH);
+            floorFit.compact = true;
+            overflow = !floorFit.fits;
+            chosen = floorFit;
         }
 
         var fg = it.fg || '#111111';
@@ -1008,12 +1059,17 @@
         var debug = !!window.__mangalensDebug;
         var node = document.createElement('div');
         node.className = 'mangalens-translation';
+        node.setAttribute('data-overflow', overflow ? '1' : '0');
+        node.setAttribute('data-font', String(chosen.size));
+        // Teks penuh selalu tersedia walau tampilan dipadatkan.
+        node.title = text;
         node.style.cssText =
             'position:absolute;box-sizing:border-box;pointer-events:none;' +
             'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
             'text-align:center;overflow:visible;' +
             'left:' + area.left + 'px;top:' + area.top + 'px;' +
-            'width:' + area.width + 'px;height:auto;min-height:' + area.height + 'px;' +
+            'width:' + area.width + 'px;' +
+            'height:' + Math.min(safe.height, Math.max(area.height, chosen.lines.length * chosen.lineHeight + pad * 2)) + 'px;' +
             'padding:' + pad + 'px;border-radius:' + Math.min(6, pad + 2) + 'px;' +
             // LOW: jangan menaruh bidang besar di atas ilustrasi; tiap baris
             // mendapat latar opak setinggi baris agar teks lama tertutup.
@@ -1058,8 +1114,12 @@
         var current = window.__mangalensOverlayState[payload.url];
         payload.version = current ? (current.version || 0) + 1 : 1;
         window.__mangalensOverlayState[payload.url] = payload;
+        var renderStarted = (window.performance && performance.now) ? performance.now() : 0;
         renderOne(payload.url);
         renderAll();
+        // Waktu tata letak tipografi + pembuatan DOM, dipakai laporan performa.
+        window.__mangalensLastRenderMs =
+            ((window.performance && performance.now) ? performance.now() : 0) - renderStarted;
         // Ringkasan untuk verifikasi: jumlah kontainer + rect gambar + geometri
         // kotak pertama. Dipakai Kotlin untuk mencatat hasil ke Logcat.
         var el = window.__mangalensElements[payload.url];

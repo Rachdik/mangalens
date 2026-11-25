@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:name=".MangaLensApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MangaLens"
+        android:usesCleartextTraffic="true">
+
+        <!-- Task affinity terpisah: saat dibuka dari Floating di atas aplikasi
+             lain, tombol Back kembali ke aplikasi itu, bukan ke MainActivity. -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="@string/settings_title"
+            android:taskAffinity="com.mangalens.settings"
+            android:theme="@style/Theme.MangaLens" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Buka tautan manga langsung dari browser / aplikasi lain.
+                 Filter ini sengaja menerima host apa pun (situs manga berbeda-beda)
+                 dan bukan Android App Link terverifikasi, sehingga lint
+                 AppLinkUrlError diabaikan secara sadar. -->
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+
+            <!-- Bagikan teks berisi URL dari aplikasi lain. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Terima gambar dari Sharesheet / aplikasi lain (image MIME). -->
+        <activity
+            android:name=".share.ShareReceiverActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <!-- Buka berkas gambar dari file manager/galeri (content:// atau file://). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+    <activity
+        android:name=".reader.ReaderActivity"
+        android:exported="true"
+        tools:replace="android:exported"
+        android:launchMode="singleTop"
+        android:theme="@style/Theme.MangaLens">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="file" />
+            <data android:scheme="content" />
+        </intent-filter>
+    </activity>
+
+</application>
+
+</manifest>

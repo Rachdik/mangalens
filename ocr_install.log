@@ -1,0 +1,71 @@
+INSTRUMENTATION_STATUS: class=com.mangalens.ocr.RealImageOcrVerificationTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.mangalens.ocr.RealImageOcrVerificationTest:
+INSTRUMENTATION_STATUS: test=ocrOnRealMangaImage_shouldDetectJapaneseText
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.mangalens.ocr.RealImageOcrVerificationTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: Gambar harus bisa di-load dari /sdcard/Download/manga_test_e11.jpg
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertNotNull(Assert.java:713)
+	at com.mangalens.ocr.RealImageOcrVerificationTest$ocrOnRealMangaImage_shouldDetectJapaneseText$1.invokeSuspend(RealImageOcrVerificationTest.kt:75)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34466:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34467:1)
+	at com.mangalens.ocr.RealImageOcrVerificationTest.ocrOnRealMangaImage_shouldDetectJapaneseText(RealImageOcrVerificationTest.kt:39)
+
+INSTRUMENTATION_STATUS: stream=
+Error in ocrOnRealMangaImage_shouldDetectJapaneseText(com.mangalens.ocr.RealImageOcrVerificationTest):
+java.lang.AssertionError: Gambar harus bisa di-load dari /sdcard/Download/manga_test_e11.jpg
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertNotNull(Assert.java:713)
+	at com.mangalens.ocr.RealImageOcrVerificationTest$ocrOnRealMangaImage_shouldDetectJapaneseText$1.invokeSuspend(RealImageOcrVerificationTest.kt:75)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34466:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34467:1)
+	at com.mangalens.ocr.RealImageOcrVerificationTest.ocrOnRealMangaImage_shouldDetectJapaneseText(RealImageOcrVerificationTest.kt:39)
+
+INSTRUMENTATION_STATUS: test=ocrOnRealMangaImage_shouldDetectJapaneseText
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 0,042
+There was 1 failure:
+1) ocrOnRealMangaImage_shouldDetectJapaneseText(com.mangalens.ocr.RealImageOcrVerificationTest)
+java.lang.AssertionError: Gambar harus bisa di-load dari /sdcard/Download/manga_test_e11.jpg
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertNotNull(Assert.java:713)
+	at com.mangalens.ocr.RealImageOcrVerificationTest$ocrOnRealMangaImage_shouldDetectJapaneseText$1.invokeSuspend(RealImageOcrVerificationTest.kt:75)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34466:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(dex-id-5d5d8a213ce59a2700fb13935c4aafc25474d940-34467:1)
+	at com.mangalens.ocr.RealImageOcrVerificationTest.ocrOnRealMangaImage_shouldDetectJapaneseText(RealImageOcrVerificationTest.kt:39)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1

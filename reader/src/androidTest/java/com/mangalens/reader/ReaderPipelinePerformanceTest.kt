@@ -83,11 +83,32 @@ class ReaderPipelinePerformanceTest {
             val page = translator.translate(bitmap, LanguageScript.JAPANESE, "ja", "id")
             val translateTotalMs = System.currentTimeMillis() - t
 
+            // Mask + inpainting diukur langsung (bukan selisih dua panggilan
+            // translate, yang bisa negatif karena model sudah panas).
             t = System.currentTimeMillis()
-            val (inpainted, pageInpaint) = translator.translateWithInpaint(
-                bitmap, LanguageScript.JAPANESE, engine, "ja", "id"
+            val mask = android.graphics.Bitmap.createBitmap(
+                bitmap.width, bitmap.height, android.graphics.Bitmap.Config.ARGB_8888
             )
-            val inpaintTotalMs = System.currentTimeMillis() - t
+            mask.eraseColor(android.graphics.Color.BLACK)
+            val canvas = android.graphics.Canvas(mask)
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.WHITE
+                style = android.graphics.Paint.Style.FILL
+            }
+            page.bubbles.forEach { bubble ->
+                bubble.textLines.ifEmpty { listOf(bubble.textBounds) }.forEach { line ->
+                    val pad = maxOf(2, (line.height() * 0.06f).toInt()).coerceAtMost(8)
+                    canvas.drawRect(
+                        (line.left - pad).toFloat(), (line.top - pad).toFloat(),
+                        (line.right + pad).toFloat(), (line.bottom + pad).toFloat(), paint
+                    )
+                }
+            }
+            val maskMs = System.currentTimeMillis() - t
+            t = System.currentTimeMillis()
+            val inpainted = engine.inpaint(bitmap, mask)
+            val inpaintMs = System.currentTimeMillis() - t
+            mask.recycle()
 
             // 7. Encode bitmap -> data URL (yang benar-benar dipasang di Reader).
             t = System.currentTimeMillis()
@@ -98,15 +119,15 @@ class ReaderPipelinePerformanceTest {
             val encodeMs = System.currentTimeMillis() - t
 
             val heapAfter = Debug.getNativeHeapAllocatedSize()
-            val totalMs = decodeMs + inpaintTotalMs + encodeMs
+            val translateMs = translateTotalMs - jaMs - detectMs
+            val totalMs = decodeMs + jaMs + detectMs + translateMs + maskMs + inpaintMs + encodeMs
             println(
                 "PERF ${width}x$height decode=${decodeMs}ms ocrAuto=${autoMs}ms " +
                     "ocrJa=${jaMs}ms(autoBlocks=${autoBlocks.size},jaBlocks=${blocks.size}) " +
                     "detect=${detectMs}ms bubbles=${bubbles.size} " +
-                    "translate=${translateTotalMs - jaMs - detectMs}ms " +
-                    "inpaint=${inpaintTotalMs - translateTotalMs}ms " +
+                    "translate=${translateMs}ms mask=${maskMs}ms inpaint=${inpaintMs}ms " +
                     "encode=${encodeMs}ms(${dataUrl.length / 1024}KB) " +
-                    "total=${totalMs}ms translatedBubbles=${pageInpaint.bubbles.size} " +
+                    "total=${totalMs}ms translatedBubbles=${page.bubbles.size} " +
                     "nativeHeapDelta=${(heapAfter - heapBefore) / 1024}KB"
             )
 
