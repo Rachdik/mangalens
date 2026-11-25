@@ -691,10 +691,10 @@ Belum dilakukan dalam sesi ini. Alasannya:
 - Push berhasil; working tree bersih; tidak ada file rahasia yang masuk.
 
 ### B. Tugas yang tidak terselesaikan
-- GitHub Release dan upload APK:
-  - Target: membuat release "MangaLens Latest Development Build" dan mengupload
+^- GitHub Release dan upload APK: (SELESAI, lihat bagian C)
+  - Target: membuat release "MangaLens Latest Development Build" dan mengupload (SELESAI; lihat bagian C)
     MangaLens-debug-latest-arm64-v8a.apk.
-  - Hambatan: autentikasi GitHub API di lingkungan ini memerlukan PAT atau interaksi browser
+  - Hambatan: autentikasi GitHub API di lingkungan ini memerlukan PAT atau interaksi browser (SELESAI; user melakukan login via CMD Windows sendiri)
     (GCM login berbasis UI). Tidak ada PAT yang tersedia dalam environment, dan headless GCM
     login tidak bisa diselesaikan tanpa interaksi pengguna.
   - Akibatnya: release + upload APK tidak bisa diselesaikan dalam sesi ini.

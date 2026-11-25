@@ -48,10 +48,10 @@ Jadi, floating Translate ada dan berfungsi parsial, tapi belum diklaim sudah sel
 
 ## Unduh APK
 
-Versi terbaru bisa diunduh dari release GitHub:
+Versi terbaru bisa diunduh dari release GitHub (debug build, prerelease):
 
 - **https://github.com/Rachdik/mangalens/releases**
-- Nama release: **MangaLens Latest Development Build**
+- Nama release: **MangaLens Latest Development Build** (prerelease; bukan versi stabil)
 - Nama aset: `MangaLens-debug-latest-arm64-v8a.apk`
 
 Catatan:
