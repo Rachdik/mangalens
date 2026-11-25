@@ -468,7 +468,84 @@ Unit test rerun dengan `--rerun-tasks`:
 | APK Build | PASS |
 | APK Installation | PASS |
 
-### K. Git Checkpoint
-- **Commit:** `739228d` (Phase 9F)
-- **Push:** NOT performed
 
+### L. Phase 9M — Handover to Next Agent
+- **Date:** 2026-11-25 (time unavailable; session had a persistent shell timeout)
+- **Repo:** `D:/Download/mangalens`, branch `main`
+- **Git HEAD:** `732ee80` (`feat: adaptive typography and real pinch-zoom validation (phase 9L)`)
+- **Status:** `main` branch, clean history of tracked changes (only untracked: Phase 9L validation report + a new Phase 9M test source file that exists on disk but was never compiled or run).
+- **Git status:** `?? MangaLens-PHASE9L-VALIDATION.md`, `?? floating/src/androidTest/java/com/mangalens/floating/Phase9MMobileCaptureTest.kt`. No staged files, no new commit, no push.
+- **Perangkat:** RMX3561, Android 14, arm64-v8a. ADB serial `X8DMKBIBXOY5W4UW` → `device`.
+- **Project path:** `D:/Download/mangalens`.
+- **Shell/tool environment:** Sesi sebelumnya mengalami timeout shell persisten (hingga 60 detik per perintah). Shell baru, fresh shell, perintah minimal, pemeriksaan state shell, periksa konektivitas ADB, telusuri Floating module test, buat uji Phase 9M, modifikasi RecordingWindowManager dan FakeWindowContext, padankan BubbleOverlayRenderTest.kt semuanya gagal atau tidak menghasilkan informasi baru. Agen sebelumnya terus menerus melaporkan "Let me continue with a fresh shell." dan "I'm encountering persistent tool timeouts.".
+
+### F. Live Status Perangkat (diperiksa pada saat ini)
+- ADB: `adb devices` mencetak `X8DMKBIBXOY5W4UW\tdevice`.
+- Model: `RMX3561`, Rilis: `14`.
+- APK debug: `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` — 38.311.373 byte, SHA-256 `f1047f347d34fe08d451b577c63c21982c805eeb216c44a82c1273070e6fe342`.
+- Front matter (manifest) module `floating` menyatakan `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `SYSTEM_ALERT_WINDOW`, `POST_NOTIFICATIONS`; service `FloatingTranslateService` bersifat `foregroundServiceType="mediaProjection", stopWithTask="false"`.
+- Manifest aplikasi `app` hanya `INTERNET` + `ACCESS_NETWORK_STATE`; service floating tidak dideklarasikan di sini.
+
+### G. Floating Production Class (dari inspeksi disk)
+- `BubbleOverlay` — `TYPE_APPLICATION_OVERLAY`, drag, refresh, translation view, hide/show.
+- `FloatingTranslate` — `canDrawOverlays`, `start`, `stop`, `requestProjection`.
+- `FloatingTranslateService` — foreground service, bind projection, capture tunnel, OCR/translation/inpainting dispatch, overlay status.
+- `ScreenCapture` — `MediaProjection`, `ImageReader`, `VirtualDisplay`, `capture()` → `CaptureFrame`, `close()`.
+- `ScreenTranslator` — thin wrapper around `MangaPageTranslator`.
+
+### H. Existing Test Coverage (dari inspeksi disk)
+- `floating/src/androidTest/java/com/mangalens/floating/BubbleOverlayRenderTest.kt` — 2 rendering / math test (`rendersRealJapaneseTranslationsOnMangaPage`, `placementDoesNotDriftWithImageScale`). Gunakan `RecordingWindowManager` palsu (private class) dan `FakeWindowContext`.
+- `floating/src/androidTest/java/com/mangalens/floating/Phase9MMobileCaptureTest.kt` — file baru diperkenalkan oleh agen sebelumnya (12347 bytes, 312 baris). Tersedia di disk, **tetapi tidak pernah dikompilasi atau dijalankan**.
+- `reader/src/androidTest/java/com/mangalens/reader/ReaderPipelinePerformanceTest.kt` — sumber performa `PERF`, tetapi **tidak pernah dijalankan ulang** di recovery Phase 9L.
+
+### I. Temuan Kunci
+1. Manifest `app` tidak memiliki floating service; service hanya ada di module `floating`.
+2. `FloatingTranslate.canDrawOverlays` ada, tetapi tidak ada verifikasi perangkat.
+3. `ScreenCapture` menggunakan `MediaProjection` + `ImageReader` + `VirtualDisplay`.
+4. `BubbleOverlay` menggunakan `TYPE_APPLICATION_OVERLAY` dan drag.
+5. Uji lintas-aplikasi (bubble di atas Chrome, tarik, tutup, tangkapan layar sebenarnya, OCR, terjemahan, inpainting, koordinat, scrolling browser, duplicate prevention, resource cleanup) telah **belum diverifikasi**.
+
+### J. Yang Penting
+1. Jangan pernah mengklaim uji yang berjalan tanpa hasil aktual.
+2. Jangan pernah mengklaim commit dibuat ketika git status menunjukkan sebaliknya.
+3. Tangkap screenshot / log aktual sebagai bukti.
+4. Verifikasi ADB / Gradle sebelum setiap perintah Phase 9M.
+5. Shell jalannya gibberish / timeout persisten, bukan masalah project.
+
+### K. Sisa Pekerjaan
+1. Stabilkan shell / lingkungan.
+2. Audit sumber Floating.
+3. Alur izin overlay.
+4. MediaProjection / capture.
+5. Integrasi pipeline.
+6. Pemetaan koordinat.
+7. Validasi perangkat nyata.
+8. Uji regresi.
+9. Penyelidikan performa.
+10. Tulis `MangaLens-PHASE9M-VALIDATION.md`.
+
+### L. Git Checkpoint
+- Tidak ada commit untuk Phase 9M sudah.
+- Setelah verifikasi aktual, lakukan commit dengan pesan deskriptif.
+- Tidak ada push ke GitHub.
+
+### M. Phase 9M Audit — Shell, Gradle, ADB & Floating Source Verification (2026-11-25)
+- **Environment (verified):**
+  - Shell: `D:/Download/mangalens` (Windows, Git Bash).
+  - Git: `2.56.0.windows.2`, branch `main`, HEAD `732ee80` (`feat: adaptive typography and real pinch-zoom validation (phase 9L)`).
+  - Java: 17.0.20.1 (Temurin).
+  - ADB: version 1.0.32; `X8DMKBIBXOY5W4UW` → `device` (RMX3561T2 / RED8BEL1, Android 14, arm64-v8a).
+  - Gradle: `gradle` **not** on PATH; Gradle 8.9 via project `gradlew` (explicit `--no-daemon --console=plain`). Use `./gradlew` only.
+- **Git status:** ` M LOG-AKTIVITAS-UTAMA.md`, untracked: `MangaLens-PHASE9L-VALIDATION.md`, `docs/HANDOFF-AGENT-PHASE9M.md`, `floating/src/androidTest/java/com/mangalens/floating/Phase9MMobileCaptureTest.kt`. Nothing committed, no push.
+- **Floating module audit (source + tests):**
+  - `floating/src/main/AndroidManifest.xml` declares `SYSTEM_ALERT_WINDOW`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `POST_NOTIFICATIONS`; service `FloatingTranslateService` = `foregroundServiceType="mediaProjection"`, `stopWithTask="false"`.
+  - `app/src/main/AndroidManifest.xml` has only `INTERNET` + `ACCESS_NETWORK_STATE` — **no** floating service declared here.
+  - `FloatingTranslate.canDrawOverlays(context)` delegates to `Settings.canDrawOverlays`.
+  - `MainActivity`: `overlayPermissionLauncher` (CAN_DRAW_OVERLAYS through `ActivityResultContracts.StartActivityForResult` + `ACTION_MANAGE_OVERLAY_PERMISSION`); `requestProjection()` → `launchProjectionConsent()` → `MediaProjectionManager.createScreenCaptureIntent()` via `projectionLauncher`.
+  - `FloatingTranslateService.bindProjection`: `getSystemService(MediaProjectionManager)` → `getMediaProjection` → `MediaProjection.Callback.onStop` → closes capture, clears translations, sets status. `ScreenCapture` = one `ImageReader` + one `VirtualDisplay` (Android 14 rule).
+  - `BubbleOverlay`: `TYPE_APPLICATION_OVERLAY`, drag (`attachTouch`), refresh, `showTranslations(bubbles, scale)`, `clearTranslations()`, `hide()`, `setHidden()`.
+  - `Phase9MMobileCaptureTest.kt` (new, currently untracked): **5 floating tests, 0 failed, 0 skipped, BUILD SUCCESSFUL** (3m 32s). Tests: overlay permission state, empty bubble list no-op, coordinate mapping at two scales, plus duplicates prevention and resource cleanup via local `RecordingWindowManager` / `FakeWindowContext`.
+  - `BubbleOverlayRenderTest.kt` (existing): 2 rendering/math tests.
+- **Key finding:** the Phase 9M test file was created by the previous agent but had compile errors (wrong overlay/translation enums, missing `Context` import, private test helper visibility). It was **fixed and now compiles and passes on RMX3561**. No production source was changed by the audit; only the Phase 9M test file was corrected.
+- **Remaining Phase 9M work (not yet verified on device):** real Chrome overlay, draggable bubble, dismiss/restore, real MediaProjection capture from another app, OCR/translation/inpainting from screen capture, coordinate mapping on live screenshots, browser scrolling, rotation, repeated capture cleanup, full Floating module regression.
+- **Next agent:** continue with real-device validation (Priority 7), then write `MangaLens-PHASE9M-VALIDATION.md`.
