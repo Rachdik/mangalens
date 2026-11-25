@@ -1,232 +1,188 @@
 # MangaLens
 
-Reader manga/manhwa/manhua berbasis URL dengan WebView, dilengkapi **penerjemah layar melayang**
-yang bisa membaca dan menerjemahkan teks di aplikasi mana pun — bukan hanya di MangaLens.
+Reader manga, manhwa, manhua, dan komik berbasis URL dengan WebView, dilengkapi **penerjemah layar melayang** yang bisa membaca dan menerjemahkan teks di aplikasi mana pun — bukan hanya di MangaLens.
 
-Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, ViewBinding) untuk Android 8.0+
+Dibangun dengan Kotlin MVVM modular (tanpa Jetpack Compose, pakai ViewBinding) untuk Android 8.0+
 (minSdk 26, targetSdk 34).
 
 ## Fitur
 
-- **Reader internal** — tempel URL manga, halaman dibuka di WebView, riwayat bacaan disimpan di
-  Room.
-- **Dukungan halaman `<canvas>`** — situs yang menggambar halaman komik ke `<canvas>`
-  (mis. kmanga) ikut diterjemahkan. Bila canvas tainted karena gambar CDN cross-origin,
-  isinya diambil lewat PixelCopy bertahap dari WebView, lalu masuk pipeline OCR yang sama.
-  Overlay memakai `position:fixed` sehingga tetap menempel pada scroller internal situs.
-- **Deteksi gambar asli** — mengambil gambar dari halaman (bukan screenshot layar) agar kualitas
-  OCR tetap tinggi.
-- **OCR on-device** — ML Kit Text Recognition bundled di APK, tanpa unduhan model saat pertama
-  dipakai.
-- **Deteksi orientasi teks** — mendeteksi teks vertikal (tategaki) Jepang/Cina untuk pergeseran
-  bubble yang tepat.
-- **Bahasa input & output bisa dipilih** — 14 bahasa sumber (otomatis, Inggris, Jepang, Korea,
-  Tionghoa, Spanyol, Prancis, Jerman, Portugis, Rusia, Vietnam, Thailand, Melayu, Arab) dan 14
-  bahasa output, bukan hanya Indonesia.
-- **Tiga provider terjemahan** — ML Kit on-device (offline, tanpa kunci), LLM
-  OpenAI-compatible (lebih luwes), atau MyMemory (gratis, daring).
-- **Pipeline terjemahan otomatis di Reader** — ReadTranslatePipeline memproses gambar halaman
-  dengan OCR → deteksi balon → terjemahan → hasil siap untuk overlay.
-- **Tempel di balon** — teks Indonesia ditempel tepat di atas teks aslinya, seukuran kotak teks
-  agar gambar di sekitar balon tetap terlihat. Teks di luar balon (kotak narasi, tulisan pada
-  gambar) juga diterjemahkan.
-- **Terjemah gambar dari aplikasi lain** — kirim gambar manga ke MangaLens lewat Sharesheet
-  (`ACTION_SEND` dengan MIME `image/*`). Gambar diproses lewat pipeline yang sama, hasilnya
-  ditampilkan sebagai dialog berisi teks asli dan terjemahan.
-- **Tampilan bisa diganti** — menu Tampilan di halaman utama berisi 8 warna aksen
-  (Purple, Blue, Cyan, Green, Red, Orange, Pink, Teal) dan mode Terang/Gelap/Ikuti Sistem.
-  Pilihan disimpan di DataStore, diterapkan sebelum layout di-inflate (tetap benar setelah
-  Activity dibuat ulang), dan dipakai seluruh modul: Reader, Floating Translator, Share Receiver.
-- **Watermark versi** — `MangaLens • v<versionName>` di halaman utama; versi dibaca dari
-  `BuildConfig.VERSION_NAME` sehingga selalu sama dengan APK yang sedang berjalan.
-- **Bubble melayang** — bekerja di atas aplikasi lain (browser, aplikasi baca, galeri) memakai
-  `MediaProjection` + overlay. Ketuk sekali untuk menerjemahkan layar, ketuk lagi untuk menghapus
-  tempelan, tahan lama untuk mematikan bubble.
+### Reader
+- **Buka halaman manga lewat URL** — tempel tautan, halaman dibuka di WebView internal.
+- **Riwayat baca** disimpan di Room.
+- **Deteksi gambar halaman** — mengambil gambar asli dari halaman (bukan screenshot layar) supaya OCR
+  tetap pakai resolusi tinggi.
+- **OCR on-device** — ML Kit Text Recognition; mendukung Jepang, Korea, Tionghoa, dan Latin.
+- **Deteksi orientasi teks** — mengikuti teks vertikal Jepang/Tionghoa biar penempatan teks terjemahan lebih pas.
+- **Pemilihan bahasa sumber dan bahasa tujuan** — 14 bahasa sumber (otomatis, Inggris, Jepang, Korea,
+  Tionghoa, Spanyol, Prancis, Jerman, Portugis, Rusia, Vietnam, Thailand, Melayu, Arab) dan 14 bahasa tujuan.
+- **Pipeline terjemahan otomatis** — saat gambar sudah terdekode, pipeline menjalankan
+  `OCR → deteksi balon → terjemahan → rendering`.
+- **Tampilan terjemahan di balon** — teks Indonesia ditempel di atas teks asli, seukuran area teks
+  sehingga gambar di sekitar balon tetap bisa dilihat. Teks di luar balon (kotak narasi, tulisan di ilustrasi)
+  juga diterjemahkan.
+- **Mode asli / terjemahan** — bisa beralih antara tampilan gambar asli dan hasil terjemahan.
+- **Tipografi adaptif** — ukuran huruf menyesuaikan agar teks terjemahan tetap muat di balon tanpa terpotong.
+- **Pinch-zoom** — pembaca mendukung zoom dan scroll; overlay terjemahan mengikuti posisi halaman.
+
+### Penerjemahan
+Tersedia beberapa pilihan provider:
+
+- **Google ML Kit** — on-device, tidak butuh kunci API. Hasil masih cukup literal.
+- **Gemini** — pilihan berbasis Google (opsional).
+- **LLM kompatibel OpenAI** — hasil lebih luwes karena diterjemahkan oleh model bahasa.
+- **MyMemory** — opsi daring gratis.
+
+LLM dan Gemini **bukan syarat wajib**: aplikasi tetap bisa dipakai hanya dengan ML Kit.
+Ketersediaan hasil ML Kit bergantung pada dukungan model dan, untuk some bahasa, pengunduhan model pertama kali.
+
+### Floating Translate
+- **Bubble melayang tersedia** — bisa dipasang dan muncul di atas aplikasi lain.
+- **Hasil uji floating yang tercatat**: 5/5 floating test PASS (termasuk render terjemahan Jepang dan uji
+  koordinat/permission state).
+- **PENTING — status jujur**: alur lintas-aplikasi lengkap
+  *(Chrome → bubble → tangkapan layar → OCR → terjemahan → inpainting → pemetaan koordinat → overlay)*
+  **belum diverifikasi di perangkat nyata**.
+
+Jadi, floating Translate ada dan berfungsi parsial, tapi belum diklaim sudah selesai sepenuhnya.
 
 ## Unduh APK
 
-### Otomatis (jika tersedia)
+Versi terbaru bisa diunduh dari release GitHub:
 
-Semua build pengujian tersedia di halaman release:
-
-**https://github.com/Rachdik/mangalens/releases** pilih APK terbaru yang tersedia.
-
-### Manual upload APK
-
-Jika belum ada release, Anda bisa mengunduh APK dari folder `releases/` di repository ini
-setelah commit berikutnya dipush. Atau gunakan GitHub Releases:
-
-1. Buka https://github.com/Rachdik/mangalens/releases/new
-2. Buat tag version (mis. `v0.1.0`)
-3. Upload file APK dari folder `releases/` (MangaLens-YYYYMMDD-arm64-debug.apk)
-4. Publish release
+- **https://github.com/Rachdik/mangalens/releases**
+- Nama release: **MangaLens Latest Development Build**
+- Nama aset: `MangaLens-debug-latest-arm64-v8a.apk`
 
 Catatan:
-
-- APK di folder `releases/` adalah debug build (belum ditandatangani untuk rilis).
-- `assembleRelease` menghasilkan APK *unsigned*; APK rilis perlu keystore sendiri.
+- APK ini masih **debug**, bukan production/stable release.
 - Package `com.mangalens.app` — uninstall versi lama sebelum memasang versi lain.
-- File APK tidak di-commit ke repository karena ukuran besar; Anda harus upload manual
-  melalui GitHub Releases atau git push dengan -f setelah mengubah .gitignore.
+- Hanya tersedia untuk **arm64-v8a** pada build ini.
+
+## Cara menginstal
+
+1. Buka tautan release di atas dari perangkat Android atau dari komputer.
+2. Unduh file `MangaLens-debug-latest-arm64-v8a.apk`.
+3. Jika sekadar mengunduh dari browser di HP, keluar notifikasi unduhan — ketuk lalu pilih **Pasang**.
+4. Jika mengunduh di komputer, pindahkan APK ke HP lalu pasang lewat file manager atau:
+   ```
+   adb install -r MangaLens-debug-latest-arm64-v8a.apk
+   ```
+5. Buka MangaLens dari launcher.
+
+Persyaratan Android: Android 8.0 (API 26) ke atas.
 
 ## Cara memakai penerjemah layar
 
-1. Buka MangaLens, pilih **bahasa sumber** (atau biarkan Otomatis) dan **bahasa output**, lalu
-   ketuk **Aktifkan bubble**.
-2. Setujui izin "tampil di atas aplikasi lain", izin notifikasi, dan izin rekam layar.
-3. Buka manga di aplikasi/browser mana pun.
-4. Ketuk bubble biru **訳** — teks di layar diterjemahkan dan ditempel di posisinya.
-5. Ketuk bubble sekali lagi untuk menghapus tempelan; tahan lama untuk mematikan bubble.
+1. Buka MangaLens, pilih **bahasa sumber** (atau biarkan Otomatis) dan **bahasa tujuan**, lalu ketuk
+   **aktifkan bubble**.
+2. Beri izin yang diminta:
+   - izin tampil di atas aplikasi lain,
+   - izin notifikasi,
+   - izin rekam layar.
+3. Buka manga di aplikasi atau browser mana pun.
+4. Ketuk bubble — teks di layar diterjemahkan dan ditempel di posisinya.
+5. Ketuk bubble lagi untuk menghapus tempelan; tahan lama untuk mematikan bubble.
 
-Jika bubble tidak muncul, pastikan izin **"Tampilkan di atas aplikasi lain"** aktif untuk
-MangaLens. Kegagalan pemasangan overlay dicatat di Logcat dengan tag `MangaLensOverlay`.
+Jika bubble tidak muncul, cek apakah izin **"Tampilkan di atas aplikasi lain"** sudah aktif untuk
+MangaLens. Catatan kegagalan pemasangan overlay bisa dilihat di Logcat dengan tag `MangaLensOverlay`.
 
-Catatan: mode **Otomatis** mengenali teks Latin sebagai Inggris. Untuk manga Spanyol/Prancis/Jerman,
-pilih bahasa sumbernya secara eksplisit agar terjemahan tidak salah arah.
+Catatan: mode **Otomatis** mengenali teks Latin sebagai Inggris.
+Untuk mangA berbahasa Spanyol / Prancis / Jerman, pilih bahasa sumbernya secara eksplisit
+agar arah terjemahan tidak salah.
 
-## Cara memakai terjemahan dari gambar yang dibagikan
+## Penyiapan provider LLM / Gemini (opsional)
 
-1. Buka gambar manga di aplikasi galeri/browser/chat.
-2. Pilih **Bagikan** lalu pilih **MangaLens**.
-3. MangaLens membuka layar hasil: OCR → deteksi balon → terjemahan.
-4. Hasil muncul sebagai dialog berisi daftar *Teks asli* dan *Terjemahan*.
-
-Jika gambar tidak bisa dibaca, aplikasi menampilkan pesan error (bukan hasil kosong). Gambar
-besar diperkecil otomatis (sisi terpanjang 2200 px) agar tidak kehabisan memori.
-
-## Provider terjemahan (ML Kit / LLM / MyMemory)
-
-Di kartu **Floating** ada pilihan **Provider terjemahan**:
-
-- **ML Kit (offline)** — bawaan, tanpa kunci API, model diunduh sekali. Hasil masih literal.
-- **LLM (OpenAI-compatible)** — hasil jauh lebih luwes karena diterjemahkan model bahasa.
-  Butuh kunci API yang dibaca dari file `.env` saat build.
-- **MyMemory (gratis)** — tanpa kunci API, batas pemakaian ketat, kadang timeout. Dipakai
-  sebagai opsi ketiga; kualitas bervariasi.
-
-Menyiapkan provider LLM:
-
-1. Salin `.env.example` menjadi `.env` di root proyek.
-2. Isi nilainya:
-
+1. Salin `.env.example` jadi `.env` di root proyek.
+2. Isi nilainya, contoh:
    ```
    LLM_API_KEY=kunci-rahasia-kamu
    LLM_BASE_URL=https://api.z.ai/api/paas/v4
    LLM_MODEL=glm-4-flash
    ```
-3. Build ulang (`./gradlew :app:assembleDebug`), pasang APK, lalu pilih
-   **LLM (OpenAI-compatible)** di aplikasi.
+   `LLM_BASE_URL` bisa diganti endpoint lain yang kompatibel OpenAI
+   (`POST {base}/chat/completions`).
+3. Build ulang:
+   ```
+   ./gradlew :app:assembleDebug
+   ```
+4. Pasang APK, lalu pilih provider LLM/Gemini di aplikasi.
 
-`.env` sudah masuk `.gitignore`. **Peringatan:** kunci ikut tertanam di APK hasil build; jangan
-bagikan atau mengunggah APK yang dibangun dengan kunci asli. APK di halaman release dibangun tanpa
-`.env`, jadi opsi LLM di sana akan melaporkan bahwa kunci API belum diisi.
+`.env` sudah masuk `.gitignore`. **Peringatan:** kunci API ikut tersimpan di APK hasil build,
+jadi jangan bagikan atau mengunggah APK yang dibangun dengan kunci asli.
+
+APK di halaman release dibangun tanpa `.env`, jadi opsi LLM/Gemini di sana akan menunjukkan
+bahwa kunci API belum diisi.
 
 ## Build dari source
 
-Butuh JDK 17 dan Android SDK (compileSdk 34). `local.properties` harus berisi `sdk.dir=...`.
+Butuh JDK 17 dan Android SDK (compileSdk 34).
+`local.properties` harus berisi `sdk.dir=...`.
 
-```bash
-./gradlew :app:assembleDebug      # APK debug per ABI
-./gradlew :app:assembleRelease    # APK release unsigned per ABI
-./gradlew clean assembleDebug assembleRelease
+```
+./gradlew :app:assembleDebug
 ```
 
-Hasil build dipisah per ABI di `app/build/outputs/apk/debug/` dan
-`app/build/outputs/apk/release/`:
-
-- `app-arm64-v8a-*.apk`
-- `app-armeabi-v7a-*.apk`
-- `app-x86_64-*.apk`
-
-Catatan build: ikon launcher harus berupa PNG asli (bukan JPEG yang di-rename) dan
-deklarasi `android:icon` tidak boleh diletakkan di tema library `ui` karena resource `mipmap`
-hanya ada di modul `app`. Kedua hal ini pernah membuat build bersih gagal.
+Hasil build dipisah per ABI di `app/build/outputs/apk/debug/`:
+- `app-arm64-v8a-debug.apk`
+- `app-armeabi-v7a-debug.apk`
+- `app-x86_64-debug.apk`
 
 ## Struktur modul
 
 | Modul | Isi |
 | --- | --- |
-| `app` | Layar utama, galeri riwayat, pengaturan bahasa sumber, penerima share gambar |
-| `core` | Model, util, DI manual |
-| `ui` | Tema dan komponen tampilan |
-| `storage` | Room (riwayat bacaan) |
-| `reader` | WebView, deteksi gambar halaman, ekstraksi gambar asli, pipeline terjemahan |
-| `floating` | Bubble melayang, overlay, tangkap layar `MediaProjection` |
+| `app` | Layar utama, galeri/riwayat, penerima berbagi gambar, pengaturan bahasa |
+| `core` | Model, utilitas, warna aplikasi, DI manual |
+| `ui` | Tema dan komponen tampilan bersama |
+| `storage` | Room untuk riwayat baca |
+| `reader` | WebView, deteksi gambar halaman, pipeline terjemahan halaman |
+| `floating` | Bubble melayang, overlay, tangkapan layar `MediaProjection` |
 | `ocr` | OCR ML Kit, deteksi skrip/bahasa |
-| `translation` | Provider terjemahan ML Kit, LLM, MyMemory + perapian ragam bahasa |
-| `inpainting` | Deteksi balon, pengelompokan blok teks, engine inpainting sederhana |
-| `imageprocessing` | Utilitas pemrosesan gambar (dHash) |
+| `translation` | Provider terjemahan (ML Kit, LLM, Gemini, MyMemory), perapian ragam bahasa |
+| `inpainting` | Deteksi balon, pengelompokan teks, penyusunan region terjemahan |
+| `imageprocessing` | Utilitas pemrosesan gambar |
 
-## Inpainting: apa yang benar-benar dilakukan
+## Status proyek
 
-`BasicInpaintingEngine` **tidak** sekadar menutup area teks dengan satu warna solid. Untuk setiap
-piksel di dalam mask, engine mencari piksel asli terdekat di sisi kiri, kanan, atas, dan bawah,
-lalu mengisi piksel itu dengan rata-rata berbobot (1/jarak) dari keempat warna tersebut, kemudian
-melembutkan tepi mask. Dengan begitu latar polos dan gradien halus ikut tersambung.
+### Implemented
+- Pembaca internal berbasis URL + WebView.
+- Deteksi gambar halaman (bukan screenshot).
+- OCR on-device ML Kit (Jepang, Korea, Tionghoa, Latin) + deteksi orientasi teks vertikal.
+- Pipeline terjemahan otomatis di Reader (OCR → deteksi balon → terjemahan → rendering).
+- Tampilan terjemahan di balon + teks di luar balon.
+- Mode asli / terjemahan.
+- Tipografi adaptif + pinch-zoom.
+- Pemilihan bahasa sumber dan tujuan (14 + 14).
+- Floating bubble: kode ada, bubble bisa dipasang.
 
-Keterbatasan (belum diuji pada perangkat):
+### Tested
+- Unit test utama: 132 PASS, 0 FAIL, 1 SKIPPED.
+- Floating test di perangkat (RMX3561, Android 14): 5/5 PASS.
 
-- **Latar polos / gradien halus** — biasanya menyatu dengan baik.
-- **Screentone dan pola garis** — tidak direkonstruksi; hasilnya tampak halus/blur.
-- **Garis gambar yang melewati teks** — ikut hilang di area mask (mask dilebarkan 6%).
-- Tidak memakai OpenCV atau model AI: kualitas **tidak** setara Content-Aware Fill/Photoshop
-  maupun inpainting berbasis model.
+### Partially verified
+- Floating Translate: implementasi ada, uji floating dasar lewat, tapi alur cross-app end-to-end
+  **belum** diverifikasi di perangkat nyata.
 
-Integrasi saat ini: `MangaPageTranslator.translateWithInpaint()` tersedia sebagai API dan
-mengembalikan bitmap hasil inpainting. **Overlay Reader dan bubble melayang masih memakai
-tempelan berwarna** (bukan bitmap hasil inpainting), jadi hasil inpainting belum tampil di UI
-mana pun.
+### Not yet verified
+- Penerjemahan lintas-aplikasi lengkap:
+  Chrome → bubble → tangkapan layar → OCR → terjemahan → inpainting → koordinat → overlay.
+- Smoke test APK terbaru di perangkat nyata (perangkat tidak tersedia saat sesi ini).
+- Upload APK terbaru sebagai release asset (tergantung autentikasi GitHub di lingkungan ini).
 
-## Batasan saat ini
+## Keterbatasan yang masih diketahui
 
-- Tempelan di Reader bersifat statis: setelah halaman digulir perlu diproses lagi (belum
-  auto-refresh mengikuti posisi gambar).
-- Overlay Reader dan bubble melayang menutup teks asli dengan warna latar balon; bitmap hasil
-  inpainting belum dipakai di UI.
-- Kualitas terjemahan mengikuti provider: ML Kit masih literal, MyMemory bervariasi, LLM
-  bergantung model.
-- Teks yang salah dibaca OCR (huruf sangat kecil/blur) akan salah diterjemahkan.
-- Model ML Kit Translation perlu internet sekali untuk unduhan awal.
-- Hanya build debug/unsigned yang tersedia; APK rilis butuh keystore.
-- `android:usesCleartextTraffic="true"` dipertahankan agar situs manga HTTP tetap bisa memuat
-  gambar; ini melonggarkan keamanan jaringan dan sebaiknya dianalisis ulang untuk rilis.
-- Kunci LLM (bila diisi) tertanam di APK.
-
-## Perubahan terbaru (2026-11-23)
-
-### Sesi 2 — audit performa, perbaikan build, share receiver, inpainting
-
-- **Share receiver** (`ShareReceiverActivity`): menerima `ACTION_SEND` `image/*` dari Sharesheet,
-  decode dua tahap dengan batas 2200 px, bitmap selalu di-recycle, hasil berupa dialog teks.
-- **Audit auto-translation bridge**: rantai JS scan → download → OCR → terjemahan → overlay
-  terverifikasi lengkap; `ImageTranslationManager.reset()` dipanggil saat halaman berubah.
-- **Perbaikan bug use-after-recycle**: manager tidak lagi me-recycle bitmap yang masih dipakai
-  coroutine pipeline; file diserahkan ke `ReadTranslatePipeline.processImageFile`.
-- **Performa OCR**: orientasi dihitung sekali per halaman (sebelumnya satu pass OCR per blok) dan
-  gambar diperkecil ke 2400 px untuk OCR dengan pemetaan koordinat balik.
-- **Performa jaringan**: MyMemory dan LLM memakai `Dispatchers.IO`, MyMemory punya satu retry.
-- **Kebocoran**: WebView melepas JavascriptInterface + di-destroy; `BubbleOverlay` menghapus
-  callback handler; translator di-cache per backend.
-- **Inpainting**: `BasicInpaintingEngine` mengisi dari piksel asli empat sisi + pelebaran mask.
-- **Build bersih**: ikon launcher dikonversi ke PNG asli (48/72/96/144/192 px) dan deklarasi
-  ikon dipindah dari tema library `ui` ke `AndroidManifest` aplikasi. `clean assembleDebug
-  assembleRelease` kini berhasil.
-
-### Sesi 1 (sebelumnya)
-
-- **Fase 1 - Stabilisasi:** perbaikan resource missing (dimens.xml), peringatan compiler di
-  ImageStore.kt, setup Android SDK.
-- **Fase 2 - Multi-provider Translation:** tambah MyMemoryTranslationProvider sebagai provider
-  gratis ketiga, update TranslationBackend enum, UI strings, dan FloatingTranslateService.
-- **Fase 3 - OCR & Text Grouping:** tambah TextOrientation enum dan deteksi orientasi teks Jepang/
-  Cina di MlKitOcrEngine, update BubbleDetector untuk support orientasi.
-- **Fase 4 - URL Reader & Auto Translation:** ReadTranslatePipeline.kt dengan
-  MangaPageTranslator, integrasi di ReaderActivity, support 3 translation backend.
-- **Icon:** update ikon aplikasi ke desain Minimalist Bubble dengan gradient purple #4F46E5.
+- Tempelan bersifat statis: jika halaman digulir, perlu ketuk bubble lagi (belum auto-refresh).
+- Teks asli ditutup oleh warna latar; inpainting piksel penuh belum jadi klaim fitur utama.
+- Kualitas terjemahan mengikuti ML Kit on-device: masih cukup literal.
+- Teks yang salah dibaca OCR (huruf sangat kecil/blur) bisa diterjemahkan jadi salah juga.
+- ML Kit Translation butuh internet sekali untuk pengunduhan model awal (untuk bahasa yang membutuhkannya).
+- Hanya tersedia build debug; APK release butuh konfigurasi keystore tersendiri.
+- Floating Translate: bubble tersedia, tapi alur penuh di atas aplikasi lain belum terverifikasi.
 
 Rencana teknis dan catatan tiap tahap ada di [`docs/RENCANA-TEKNIS.md`](docs/RENCANA-TEKNIS.md).
 
 ## Lisensi & penggunaan
 
-Proyek ini untuk keperluan pribadi dan pembelajaran. Gunakan hanya pada konten yang kamu berhak
-mengaksesnya; hormati ketentuan situs sumber dan hak pencipta.
+Proyek ini untuk keperluan pribadi dan pembelajaran.
+Gunakan hanya pada konten yang kamu berhak akses; hormati ketentuan situs sumber dan hak pencipta.
