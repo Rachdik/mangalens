@@ -130,9 +130,13 @@ object BubbleDetector {
                 else -> BubbleConfidence.MEDIUM
             }
 
+            // `block.lines` dan `block.bounds` sudah dalam koordinat bitmap asli
+            // (OCR mengembalikannya pada ukuran asli). Sebelumnya baris ini memanggil
+            // toOriginal(scale) sehingga koordinat dibagi skala DUA kali dan mask
+            // inpainting jatuh di tempat yang salah (teks asli tidak pernah terhapus).
             val lines = group.blocks
                 .flatMap { block -> block.lines.ifEmpty { listOf(block.bounds) } }
-                .map { it.toOriginal(scale) }
+                .map { Rect(it) }
             val idText = text + "@" + union.left + "," + union.top
             val id = "b" + Integer.toHexString(idText.hashCode())
 

@@ -31,6 +31,11 @@ import kotlin.math.abs
 @RunWith(AndroidJUnit4::class)
 class MangaInpaintImageTest {
 
+    private companion object {
+        /** Sisanya hanya boleh berupa sisa tepi anti-aliasing, bukan teks yang terbaca. */
+        const val MAX_RESIDUAL_TEXT_RATIO = 0.1f
+    }
+
     private lateinit var engine: BasicInpaintingEngine
 
     @Before
@@ -465,14 +470,96 @@ class MangaInpaintImageTest {
         return result
     }
 
+    /**
+     * Memastikan teks ASLI benar-benar hilang dari area mask setelah inpainting.
+     *
+     * Sebelumnya helper ini menghitung piksel terang pada bitmap `mask` untuk kedua
+     * sisi (`countMaskedPixelsAboveThreshold(mask, ...)` vs
+     * `countMaskedPixelsAboveThreshold(result, ...)`, yang juga mengabaikan
+     * parameter `bmp`), sehingga `sourceMasked == resultMasked` selalu dan test
+     * tidak mungkin lolos.
+     *
+     * Yang diuji sekarang adalah perilaku engine yang sebenarnya: piksel di dalam
+     * mask yang berbeda dari warna latar sekitarnya (yaitu huruf/teks) harus
+     * diganti warna hasil rekonstruksi. Arah pemeriksaan ini tidak bergantung pada
+     * apakah teks gelap di atas latar terang atau sebaliknya.
+     */
     private fun assertMaskAreaReduced(source: Bitmap, mask: Bitmap, result: Bitmap, tolerance: Int = 5) {
-        val sourceMasked = countMaskedPixelsAboveThreshold(mask, mask, 127)
-        val resultMasked = countMaskedPixelsAboveThreshold(result, mask, 127)
+        val bbox = maskBounds(mask)
+        assertTrue("Mask harus berisi minimal satu piksel", bbox != null)
+        bbox!!
+
+        val background = surroundingAverage(source, mask, bbox)
+        val distanceThreshold = tolerance * 4
+
+        var textBefore = 0
+        var textAfter = 0
+        for (y in bbox.top until bbox.bottom) {
+            for (x in bbox.left until bbox.right) {
+                if (!isMaskedAt(mask, x, y)) continue
+                if (colorDistance(source.getPixel(x, y), background) > distanceThreshold) textBefore++
+                if (colorDistance(result.getPixel(x, y), background) > distanceThreshold) textAfter++
+            }
+        }
+
         assertTrue(
-            "Area teks harus berkurang. Source: $sourceMasked, Result: $resultMasked",
-            resultMasked < sourceMasked - tolerance
+            "Area mask harus berisi teks asli untuk diperbaiki (ditemukan $textBefore piksel teks)",
+            textBefore > 0
+        )
+        assertTrue(
+            "Teks asli harus hilang dari area mask. Piksel teks sebelum: $textBefore, sesudah: $textAfter",
+            textAfter <= textBefore * MAX_RESIDUAL_TEXT_RATIO
         )
     }
+
+    /** Kotak pembatas seluruh piksel mask, atau null bila mask kosong. */
+    private fun maskBounds(mask: Bitmap): Rect? {
+        var minX = Int.MAX_VALUE
+        var minY = Int.MAX_VALUE
+        var maxX = Int.MIN_VALUE
+        var maxY = Int.MIN_VALUE
+        for (y in 0 until mask.height) {
+            for (x in 0 until mask.width) {
+                if (!isMaskedAt(mask, x, y)) continue
+                if (x < minX) minX = x
+                if (y < minY) minY = y
+                if (x > maxX) maxX = x
+                if (y > maxY) maxY = y
+            }
+        }
+        if (maxX < minX) return null
+        return Rect(minX, minY, maxX + 1, maxY + 1)
+    }
+
+    /**
+     * Rata-rata warna piksel NON-mask pada cincin 2 piksel di luar kotak mask.
+     * Ini adalah warna latar yang seharusnya muncul kembali setelah teks dihapus.
+     */
+    private fun surroundingAverage(source: Bitmap, mask: Bitmap, bbox: Rect): Int {
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+        var count = 0
+        for (y in (bbox.top - 2).coerceAtLeast(0) until (bbox.bottom + 2).coerceAtMost(source.height)) {
+            for (x in (bbox.left - 2).coerceAtLeast(0) until (bbox.right + 2).coerceAtMost(source.width)) {
+                val insideBox = y >= bbox.top && y < bbox.bottom && x >= bbox.left && x < bbox.right
+                if (insideBox || isMaskedAt(mask, x, y)) continue
+                val color = source.getPixel(x, y)
+                sumR += Color.red(color)
+                sumG += Color.green(color)
+                sumB += Color.blue(color)
+                count++
+            }
+        }
+        if (count == 0) return Color.WHITE
+        return Color.rgb((sumR / count).toInt(), (sumG / count).toInt(), (sumB / count).toInt())
+    }
+
+    /** Jarak warna rata-rata per kanal (0..255). */
+    private fun colorDistance(a: Int, b: Int): Int =
+        (abs(Color.red(a) - Color.red(b)) +
+            abs(Color.green(a) - Color.green(b)) +
+            abs(Color.blue(a) - Color.blue(b))) / 3
 
     private fun assertPixelsOutsideMaskUnchanged(source: Bitmap, mask: Bitmap, result: Bitmap, tolerance: Int = 2) {
         var diffCount = 0
@@ -591,13 +678,18 @@ class MangaInpaintImageTest {
         return count
     }
 
+    /** Jumlah piksel di dalam area mask yang kecerahannya melebihi [threshold]. */
     private fun countMaskedPixelsAboveThreshold(bmp: Bitmap, mask: Bitmap, threshold: Int): Int {
         var count = 0
-        for (y in 0 until bmp.height) {
-            for (x in 0 until bmp.width) {
-                if (isMaskedAt(mask, x, y)) count++
+        for (y in 0 until minOf(bmp.height, mask.height)) {
+            for (x in 0 until minOf(bmp.width, mask.width)) {
+                if (!isMaskedAt(mask, x, y)) continue
+                if (luminanceOf(bmp.getPixel(x, y)) > threshold) count++
             }
         }
         return count
     }
+
+    private fun luminanceOf(color: Int): Int =
+        (Color.red(color) + Color.green(color) + Color.blue(color)) / 3
 }
